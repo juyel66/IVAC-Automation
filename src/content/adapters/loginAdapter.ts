@@ -304,24 +304,50 @@ export class LoginAdapter {
    * Detects if authentication succeeded based on genuine post-auth indicators
    */
   public detectAuthSuccess(): boolean {
+    // 0. Pre-condition: If page shows an active authentication error alert, auth has NOT succeeded
+    if (this.detectPageErrors() !== null) {
+      return false;
+    }
+
     const pathname = window.location.pathname.toLowerCase();
     const url = window.location.href.toLowerCase();
 
-    // 1. URL redirected away from login and otp routes
-    const isLoginOrOtpRoute = pathname === '/' || pathname.includes('/login') || pathname.includes('/otp') || pathname.includes('/signin') || url.includes('/login') || url.includes('/otp');
-    if (!isLoginOrOtpRoute) {
+    // 1. Presence of verified post-auth DOM elements
+    const postAuthSelectors = [
+      'a[href*="logout" i]',
+      'button[id*="logout" i]',
+      '.user-profile',
+      '.applicant-menu',
+      '.logged-in-user',
+      '#user_info',
+      '.user-name',
+      '.dashboard-wrapper',
+      'nav .user-info',
+      'a[href*="/logout" i]'
+    ];
+    if (document.querySelector(postAuthSelectors.join(', '))) {
       return true;
     }
 
-    // 2. Presence of post-auth elements
-    const logoutBtn = document.querySelector('a[href*="logout" i], button[id*="logout" i], .user-profile, .applicant-menu');
-    if (logoutBtn) {
-      return true;
-    }
+    // 2. URL transitioned to an authenticated applicant workflow route
+    const isLoginOrOtpRoute =
+      pathname === '/' ||
+      pathname.includes('/login') ||
+      pathname.includes('/otp') ||
+      pathname.includes('/signin') ||
+      url.includes('/login') ||
+      url.includes('/otp');
 
-    // 3. User session name / welcome badge
-    const welcomeBadge = document.querySelector('.user-name, .logged-in-user, #user_info');
-    if (welcomeBadge) {
+    const isAuthenticatedAppRoute =
+      pathname.includes('/application') ||
+      pathname.includes('/dashboard') ||
+      pathname.includes('/document') ||
+      pathname.includes('/centre') ||
+      pathname.includes('/center') ||
+      pathname.includes('/appointment') ||
+      pathname.includes('/slot');
+
+    if (!isLoginOrOtpRoute && isAuthenticatedAppRoute) {
       return true;
     }
 
