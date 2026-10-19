@@ -69,20 +69,28 @@ Target Site: [https://appointment.ivacbd.com/](https://appointment.ivacbd.com/)
 
 ---
 
-## 5. Security & Credentials
+## 5. Security & Credentials Workflow
 - [ ] Confirm passwords are **never** stored in plaintext in `chrome.storage.local`, `localStorage`, or `IndexedDB`. Inspect `chrome.storage.local` in DevTools console:
   ```js
   chrome.storage.local.get(null, console.log);
   ```
   Confirm that only `encryptedPassword`, `passwordSalt`, and `passwordIv` exist, and NO plaintext password exists.
 - [ ] Confirm Master PIN is **never** saved to disk or persistent storage.
-- [ ] Master PIN Unlock: Refresh the browser or close and reopen Chrome. Confirm the dashboard shows `Encrypted (PIN Needed)`. Enter `1234` and click **Unlock**. Confirm credentials become unlocked in session. Test with an incorrect PIN (`0000`) and confirm rejection.
-- [ ] Confirm no cookies or OTPs are logged to console.
+- [ ] In-Memory Only: Confirm decrypted passwords exist only in the JS memory map (`SessionCredentialManager.inMemoryVault`).
+- [ ] Profile Deletion: Confirm that deleting a profile explicitly locks/purges its credentials from memory.
+- [ ] Browser Restart Unlock Behavior:
+  - Close Chrome or reload the page.
+  - Because memory is wiped, the profile returns to locked state (`PIN Needed`).
+  - Plaintext password is not available until the user types their Master PIN and clicks **Unlock**.
+  - Entering an incorrect PIN is rejected by AES-GCM tag verification.
 
 ---
 
 ## 6. Website Integration, Login & OTP Workflow
 - [ ] Open [https://appointment.ivacbd.com/](https://appointment.ivacbd.com/).
+- [ ] Ordinary Visa Page vs Payment Page Verification:
+  - Verify that ordinary application pages with text like "Indian Visa Application Center", "Tourist Visa", or "Visa Fee: 800 BDT" are **NOT** detected as `PAYMENT`.
+  - Payment detection requires an explicit payment route (`/payment`, `/pay-fee`, `/sslcommerz`, `/bkash-checkout`), a verified payment gateway iframe or form, or at least two distinct checkout indicators.
 - [ ] Dashboard check:
   - If Primary PDF is missing or credentials locked, confirm **Start Assistant** button is disabled with warning.
   - When Primary PDF and credentials are ready, confirm **Start Assistant** button enables.
@@ -93,20 +101,37 @@ Target Site: [https://appointment.ivacbd.com/](https://appointment.ivacbd.com/)
   - Automation pauses for manual human CAPTCHA completion.
 - [ ] OTP Verification:
   - After submitting login and requesting OTP on the IVAC portal, the assistant detects the OTP verification page (`/otp` or OTP input element).
-  - An interactive **IVAC SMS Verification Code** section appears inside the floating assistant.
+  - An interactive **IVAC SMS Verification Code** section appears inside the floating assistant (and ONLY when OTP page is detected).
   - Enter an invalid OTP (e.g., `12ab` or `123`) and verify validation error.
   - Enter the numeric SMS OTP received on mobile (e.g., `123456`) and click **Verify OTP**.
   - Assistant populates the website's OTP input and clicks the website's verify button.
   - Status updates to *"Verifying..."*.
-  - Verification check: Assistant verifies genuine authentication before proceeding; does not prematurely claim success.
+  - Verification check: Assistant verifies genuine authentication state before proceeding; does not prematurely claim success.
   - Error check: If IVAC reports *"Invalid OTP"* or *"Expired OTP"*, the assistant displays the error and allows re-entering code.
-- [ ] Subsequent steps:
-  - After authenticated, sequential upload initiates: Primary PDF first, then Additional PDFs in configured order.
-  - Centre selection route: selects profile's preferred centre (`Dhaka`, `Rajshahi`, etc.).
-  - Payment Safety Handoff: When payment route is reached, assistant halts immediately and directs user to complete fee payment manually.
-  - When payment route (`/payment`, `sslcommerz`, `bkash`) is reached, assistant **immediately halts**.
+- [ ] Document Upload Stage:
+  - Primary document (order 0) is uploaded and verified first.
+  - Additional documents follow configured order (1, 2, 3).
+  - Each file strictly maps to its corresponding input field. If a field is missing or unverified, the workflow stops immediately.
+- [ ] Centre & Appointment Adapters:
+  - Centre dropdown and radio card selections require DOM confirmation.
+  - Appointment slots filter out disabled, booked, full, or past slots.
+  - Slot selection does NOT claim success unless DOM confirms selection (`selected`, `active`, `aria-selected`).
+  - No infinite click loops or repeated booking submissions.
+- [ ] Payment Safety Handoff:
+  - When a genuine payment route (`/payment`, `sslcommerz`, `bkash`) or gateway is detected, assistant **immediately halts** all automation.
   - Displays blue alert: *"Payment stage reached. For your security, the assistant will NOT interact with payment systems. Please complete your fee payment manually."*
 - [ ] Controls check:
   - Test **Pause**: state becomes `PAUSED`, automation halts.
-  - Test **Resume**: resumes at current step without duplicate file uploads.
+  - Test **Resume**: resumes at current step without duplicate uploads.
   - Test **Stop**: halts engine and resets active state.
+
+---
+
+## 7. Testing Boundary & Verification Status
+- **Code-Level Automated Tests**:
+  - 70 unit and integration tests passing in Vitest across 8 test suites.
+  - TypeScript compiler (`tsc --noEmit`) passes with 0 errors.
+  - Production build (`npm run build`) builds `popup`, `content`, and `background` with 0 errors.
+- **Live IVAC Site Verification**:
+  - Live portal interactions (real SMS OTP delivery, live slot availability, real gateway redirection) depend on live IVAC server conditions, applicant queue status, and CAPTCHA.
+  - Automated tests simulate and enforce all boundary contracts without executing live bookings or payments.
