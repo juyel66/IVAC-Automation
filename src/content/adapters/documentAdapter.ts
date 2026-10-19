@@ -82,51 +82,61 @@ export class DocumentAdapter {
 
     for (let i = 0; i < sortedDocs.length; i++) {
       const doc = sortedDocs[i];
-      onProgress(doc.id, 'uploading', `Preparing document ${i + 1}/${sortedDocs.length}: ${doc.fileName}...`);
+      const docLabel = doc.role === 'primary' ? `Primary PDF (${doc.fileName})` : `Additional PDF #${doc.orderIndex} (${doc.fileName})`;
+      onProgress(doc.id, 'uploading', `Processing ${docLabel} [${i + 1}/${sortedDocs.length}]...`);
 
+      // 1. Strict mapping: Each document must map to its specific corresponding field index
+      const targetInput = availableInputs[i];
+      if (!targetInput) {
+        const errorMsg = `No upload input field found for ${docLabel}. Page provides ${availableInputs.length} upload field(s). Workflow stopped.`;
+        onProgress(doc.id, 'error', errorMsg);
+        return {
+          success: false,
+          uploadedCount: successCount,
+          errorMessage: errorMsg
+        };
+      }
+
+      // 2. Read stored PDF binary
       const binaryBlob = await documentRepository.getDocumentBinary(doc.id);
       if (!binaryBlob) {
-        onProgress(doc.id, 'error', `Could not read document data for ${doc.fileName}`);
+        const errorMsg = `Missing binary data in storage for ${docLabel}. Workflow stopped.`;
+        onProgress(doc.id, 'error', errorMsg);
         return {
           success: false,
           uploadedCount: successCount,
-          errorMessage: `Missing binary data for ${doc.fileName}`
+          errorMessage: errorMsg
         };
       }
 
-      // Assign to the i-th input field, or available input
-      const targetInput = availableInputs[i] || availableInputs[0];
+      // 3. Attach file to the designated target input
       const attached = await this.attachFileToInput(targetInput, binaryBlob, doc.fileName);
-
       if (!attached) {
-        onProgress(doc.id, 'error', `Browser prevented automatic upload of ${doc.fileName}. Please select it manually.`);
+        const errorMsg = `Browser prevented automatic upload of ${docLabel}. Manual upload required.`;
+        onProgress(doc.id, 'error', errorMsg);
         return {
           success: false,
           uploadedCount: successCount,
-          errorMessage: `Manual selection required for ${doc.fileName}`
+          errorMessage: errorMsg
         };
       }
 
-      // Wait brief moment for DOM update
+      // Brief delay for website DOM reaction
       await new Promise(r => setTimeout(r, 600));
 
+      // 4. Strict verification of successful upload
       const confirmed = this.verifyUploadConfirmation(targetInput, doc.fileName);
       if (confirmed) {
         successCount++;
-        onProgress(doc.id, 'uploaded', `Successfully attached ${doc.fileName}`);
+        onProgress(doc.id, 'uploaded', `Successfully attached and verified ${docLabel}`);
       } else {
-        // If not strictly confirmed by DOM but files property set, count as attached
-        if (targetInput.files && targetInput.files.length > 0) {
-          successCount++;
-          onProgress(doc.id, 'uploaded', `Attached ${doc.fileName}`);
-        } else {
-          onProgress(doc.id, 'error', `Could not verify upload of ${doc.fileName}`);
-          return {
-            success: false,
-            uploadedCount: successCount,
-            errorMessage: `Verification failed for ${doc.fileName}`
-          };
-        }
+        const errorMsg = `Upload verification failed for ${docLabel}. Page did not confirm attachment. Workflow stopped.`;
+        onProgress(doc.id, 'error', errorMsg);
+        return {
+          success: false,
+          uploadedCount: successCount,
+          errorMessage: errorMsg
+        };
       }
     }
 
