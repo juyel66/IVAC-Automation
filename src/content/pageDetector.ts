@@ -25,9 +25,21 @@ export class IvacPageDetector {
     const url = window.location.href.toLowerCase();
     const pathname = window.location.pathname.toLowerCase();
 
-    // 1. Payment Page Detection (Highest priority safety check)
+    // 1. Payment Page Detection (Safety check)
+    // To prevent false positives on regular pages containing words like "visa" or "application",
+    // require:
+    // - either a verified payment route, OR
+    // - a verified payment gateway DOM structure (iframe, payment form, container), OR
+    // - at least 2 distinct verified payment indicators.
     const paymentIndicators = this.detectPaymentSignals(url, pathname);
-    if (paymentIndicators.length > 0) {
+    const hasStrongRouteOrDom = paymentIndicators.some(s => 
+      s.includes('URL indicates payment route') ||
+      s.includes('Payment gateway iframe') ||
+      s.includes('Payment gateway form action') ||
+      s.includes('Payment gateway container')
+    );
+
+    if (hasStrongRouteOrDom || paymentIndicators.length >= 2) {
       return { pageType: 'PAYMENT', confidence: 0.95, indicators: paymentIndicators };
     }
 
@@ -72,19 +84,62 @@ export class IvacPageDetector {
 
   private detectPaymentSignals(url: string, pathname: string): string[] {
     const signals: string[] = [];
-    if (pathname.includes('/payment') || url.includes('payment') || url.includes('sslcommerz') || url.includes('bkash')) {
-      signals.push('URL contains payment keyword');
+
+    // 1. Explicit payment routes
+    const isPaymentRoute =
+      pathname.includes('/payment') ||
+      pathname.includes('/pay-fee') ||
+      pathname.includes('/fee-payment') ||
+      pathname.includes('/payment-gateway') ||
+      url.includes('sslcommerz') ||
+      url.includes('bkash-checkout') ||
+      url.includes('nagad-checkout');
+
+    if (isPaymentRoute) {
+      signals.push(`URL indicates payment route: ${pathname}`);
     }
-    const paymentKeywords = ['payment', 'pay now', 'bKash', 'nagad', 'rocket', 'visa', 'mastercard', 'sslcommerz', 'fee amount'];
-    for (const kw of paymentKeywords) {
-      if (document.body && document.body.innerText.toLowerCase().includes(kw.toLowerCase())) {
-        signals.push(`Page contains keyword: ${kw}`);
-        break;
+
+    // 2. Verified payment gateway iframes
+    if (document.querySelector('iframe[src*="sslcommerz"], iframe[src*="bkash"], iframe[src*="payment"]')) {
+      signals.push('Payment gateway iframe detected');
+    }
+
+    // 3. Verified payment form actions
+    if (document.querySelector('form[action*="payment"], form[action*="sslcommerz"], form[action*="bkash"], form[action*="shurjopay"]')) {
+      signals.push('Payment gateway form action detected');
+    }
+
+    // 4. Dedicated payment containers
+    if (document.querySelector('.payment-gateway, #payment-gateway-container, .sslcz-container, [data-payment-gateway]')) {
+      signals.push('Payment gateway container detected');
+    }
+
+    // 5. Explicit payment submit buttons
+    if (document.querySelector('button[id*="btn-payment" i], button[name="pay_now" i], .btn-pay-fee, input[type="submit"][value*="Pay Now" i]')) {
+      signals.push('Payment action button detected');
+    }
+
+    // 6. Unambiguous payment phrases (explicitly avoiding 'visa' or single words like 'payment' or 'fee')
+    if (document.body) {
+      const bodyText = (document.body.innerText || document.body.textContent || '').toLowerCase();
+      const unambiguousPaymentPhrases = [
+        'select payment method',
+        'sslcommerz gateway',
+        'bkash payment',
+        'nagad payment',
+        'rocket payment',
+        'online payment gateway',
+        'appointment fee payment',
+        'complete fee payment'
+      ];
+      for (const phrase of unambiguousPaymentPhrases) {
+        if (bodyText.includes(phrase)) {
+          signals.push(`Unambiguous payment phrase: "${phrase}"`);
+          break;
+        }
       }
     }
-    if (document.querySelector('form[action*="payment"], button[id*="pay"], .payment-gateway')) {
-      signals.push('Payment form or gateway element found in DOM');
-    }
+
     return signals;
   }
 
@@ -119,7 +174,7 @@ export class IvacPageDetector {
     }
 
     if (document.body) {
-      const bodyText = document.body.innerText.toLowerCase();
+      const bodyText = (document.body.innerText || document.body.textContent || '').toLowerCase();
       if (bodyText.includes('enter otp') || bodyText.includes('verification code') || bodyText.includes('otp sent')) {
         signals.push('OTP instructional text found on page');
       }
@@ -137,8 +192,11 @@ export class IvacPageDetector {
     if (fileInputs.length > 0) {
       signals.push(`Found ${fileInputs.length} file upload inputs`);
     }
-    if (document.body && (document.body.innerText.includes('Upload Document') || document.body.innerText.includes('Passport Copy'))) {
-      signals.push('Document upload text found');
+    if (document.body) {
+      const bodyText = (document.body.innerText || document.body.textContent || '').toLowerCase();
+      if (bodyText.includes('upload document') || bodyText.includes('passport copy')) {
+        signals.push('Document upload text found');
+      }
     }
     return signals;
   }
