@@ -70,6 +70,13 @@ export class CentreAdapter {
       element.dispatchEvent(new Event('input', { bubbles: true }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
 
+      if (element.value !== matchedOption.value) {
+        return {
+          success: false,
+          message: `Attempted to select centre "${matchedOption.text}", but selection did not register. Please select manually.`
+        };
+      }
+
       return {
         success: true,
         selectedValue: matchedOption.text,
@@ -85,10 +92,25 @@ export class CentreAdapter {
 
         if (text.includes(targetLower) || val.includes(targetLower)) {
           item.click();
+
+          const isChecked = (item as HTMLInputElement).checked === true;
+          const isSelected =
+            item.classList.contains('active') ||
+            item.classList.contains('selected') ||
+            item.getAttribute('aria-checked') === 'true' ||
+            item.getAttribute('aria-selected') === 'true';
+
+          if (isChecked || isSelected) {
+            return {
+              success: true,
+              selectedValue: preferredCentre,
+              message: `Selected centre "${preferredCentre}".`
+            };
+          }
+
           return {
-            success: true,
-            selectedValue: preferredCentre,
-            message: `Selected centre "${preferredCentre}".`
+            success: false,
+            message: `Clicked centre "${preferredCentre}", but selection confirmation was not detected on the page. Please select manually.`
           };
         }
       }
