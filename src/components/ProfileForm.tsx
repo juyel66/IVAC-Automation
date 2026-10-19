@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Save, X, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Save, X, AlertTriangle, Eye, EyeOff, KeyRound, Lock } from 'lucide-react';
 import { IvacProfile, ProfileFormData, SUPPORTED_IVAC_CENTRES } from '../types/profile';
 import { validateProfileForm } from '../utils/validation';
 
@@ -16,14 +16,20 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
   onSave,
   onCancel,
 }) => {
+  const hasExistingPassword = !!(initialProfile?.encryptedPassword);
+
   const [formData, setFormData] = useState<ProfileFormData>({
     displayName: initialProfile?.displayName || '',
     applicantName: initialProfile?.applicantName || '',
     mobileNumber: initialProfile?.mobileNumber || '',
     preferredCentre: initialProfile?.preferredCentre || 'Dhaka',
-    sessionPassword: ''
+    password: '',
+    masterPin: '',
+    hasExistingPassword
   });
 
+  const [showPassword, setShowPassword] = useState(false);
+  const [showMasterPin, setShowMasterPin] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -124,20 +130,92 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
         )}
       </div>
 
-      {/* Mobile Number */}
-      <div>
-        <label className="block font-medium text-slate-200 mb-1">
-          IVAC Mobile Number <span className="text-emerald-400">*</span>
-        </label>
-        <input
-          type="tel"
-          value={formData.mobileNumber}
-          onChange={(e) => handleChange('mobileNumber', e.target.value)}
-          placeholder="01712345678"
-          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
-        />
-        {errors.mobileNumber && (
-          <p className="mt-1 text-[11px] text-rose-400">{errors.mobileNumber}</p>
+      {/* Mobile Number & IVAC Password Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Mobile Number */}
+        <div>
+          <label className="block font-medium text-slate-200 mb-1">
+            IVAC Mobile Number <span className="text-emerald-400">*</span>
+          </label>
+          <input
+            type="tel"
+            value={formData.mobileNumber}
+            onChange={(e) => handleChange('mobileNumber', e.target.value)}
+            placeholder="01712345678"
+            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+          />
+          {errors.mobileNumber && (
+            <p className="mt-1 text-[11px] text-rose-400">{errors.mobileNumber}</p>
+          )}
+        </div>
+
+        {/* IVAC Account Password */}
+        <div>
+          <label className="block font-medium text-slate-200 mb-1">
+            IVAC Password {!hasExistingPassword && <span className="text-emerald-400">*</span>}
+            {hasExistingPassword && (
+              <span className="text-[10px] text-slate-400 font-normal ml-1">
+                (Leave blank to keep current)
+              </span>
+            )}
+          </label>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={formData.password}
+              onChange={(e) => handleChange('password', e.target.value)}
+              placeholder={hasExistingPassword ? '•••••••• (encrypted)' : 'Enter IVAC password'}
+              autoComplete="new-password"
+              className="w-full pl-3 pr-8 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+            >
+              {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+          {errors.password && (
+            <p className="mt-1 text-[11px] text-rose-400">{errors.password}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Master Security PIN / Passphrase */}
+      <div className="p-2.5 bg-slate-900/80 border border-slate-800 rounded-lg space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="font-medium text-slate-200 flex items-center gap-1.5">
+            <Lock className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Master Security PIN / Key</span>
+            {(!hasExistingPassword || formData.password) && (
+              <span className="text-emerald-400">*</span>
+            )}
+          </label>
+          <span className="text-[10px] text-slate-400 font-mono">AES-256-GCM</span>
+        </div>
+        <p className="text-[10px] text-slate-400 leading-relaxed">
+          Your IVAC password is encrypted client-side using this Master PIN. The PIN is <strong>never saved to disk</strong>.
+        </p>
+        <div className="relative">
+          <input
+            type={showMasterPin ? 'text' : 'password'}
+            value={formData.masterPin}
+            onChange={(e) => handleChange('masterPin', e.target.value)}
+            placeholder="Set a 4-8 digit PIN or passphrase"
+            className="w-full pl-8 pr-8 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-100 placeholder-slate-500 text-xs focus:outline-none focus:border-emerald-500"
+          />
+          <KeyRound className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <button
+            type="button"
+            onClick={() => setShowMasterPin(!showMasterPin)}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+          >
+            {showMasterPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+        {errors.masterPin && (
+          <p className="text-[11px] text-rose-400">{errors.masterPin}</p>
         )}
       </div>
 
@@ -160,25 +238,6 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
         {errors.preferredCentre && (
           <p className="mt-1 text-[11px] text-rose-400">{errors.preferredCentre}</p>
         )}
-      </div>
-
-      {/* Session Password (Optional & Secure) */}
-      <div className="p-2.5 bg-slate-900/60 border border-slate-800 rounded-lg space-y-1.5">
-        <div className="flex items-center gap-1.5 text-slate-300 font-medium">
-          <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-          <span>Session-Only Password (In-Memory)</span>
-        </div>
-        <p className="text-[10px] text-slate-400 leading-relaxed">
-          For your safety, passwords are NEVER written to disk or sent anywhere. Entering a password here holds it in memory strictly for the active session.
-        </p>
-        <input
-          type="password"
-          value={formData.sessionPassword || ''}
-          onChange={(e) => handleChange('sessionPassword', e.target.value)}
-          placeholder="Enter IVAC password (optional)"
-          autoComplete="new-password"
-          className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-slate-100 placeholder-slate-500 text-xs focus:outline-none focus:border-amber-500"
-        />
       </div>
 
       {/* Form Action Buttons */}

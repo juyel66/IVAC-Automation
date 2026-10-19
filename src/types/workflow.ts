@@ -22,6 +22,21 @@ export type IvacPageType =
   | 'APPOINTMENT_CALENDAR'
   | 'PAYMENT';
 
+export type AuthSubStatus =
+  | 'idle'
+  | 'awaiting_captcha'
+  | 'awaiting_otp'
+  | 'submitting_otp'
+  | 'authenticated'
+  | 'auth_failed';
+
+export interface OtpSessionState {
+  isRequired: boolean;
+  isSubmitting: boolean;
+  errorMessage?: string;
+  lastSubmittedOtp?: string;
+}
+
 export interface WorkflowStepInfo {
   index: number;
   total: number;
@@ -40,6 +55,8 @@ export interface WorkflowSession {
   errorMessage: string | null;
   pausedReason?: string;
   isPaused: boolean;
+  authStatus: AuthSubStatus;
+  otpState: OtpSessionState;
   logs: WorkflowLogEntry[];
 }
 

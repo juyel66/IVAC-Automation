@@ -39,14 +39,15 @@ Target Site: [https://appointment.ivacbd.com/](https://appointment.ivacbd.com/)
   - Display Name: `Summer Vacation 2026`
   - Legal Applicant Name: `Mohammad Rahman`
   - Mobile: `01712345678`
+  - IVAC Password: `mySecretPassword123`
+  - Master Security PIN: `1234`
   - Preferred Centre: `Dhaka`
-  - Session Password: `testPassword123`
 - [ ] Click **Save Profile**.
-- [ ] Confirm profile appears in the list and is set as Active.
+- [ ] Confirm profile appears in the list and credentials are automatically unlocked in the current session.
 - [ ] Duplicate Validation: Click **New Profile**, enter the same display name `Summer Vacation 2026` and mobile `01712345678`. Confirm duplicate warning appears.
 - [ ] Mobile Validation: Enter invalid numbers (`012...`, 10 digits, etc.) and confirm validation error triggers.
-- [ ] Edit Profile: Click the pencil icon on an existing profile, change centre to `Rajshahi`, save, confirm update.
-- [ ] Multiple Profiles: Create 2 more profiles. Select between them and verify active profile switch.
+- [ ] Password Validation: Try creating a profile without a password or with a password under 4 characters. Confirm validation error triggers.
+- [ ] Edit Profile: Click the pencil icon on an existing profile, change centre to `Rajshahi`, save, confirm update without needing to re-type the password.
 - [ ] Delete Profile: Click trash icon. Confirm delete confirmation dialog appears. Confirm deletion and verify associated IndexedDB PDFs are cleaned up.
 
 ---
@@ -69,35 +70,40 @@ Target Site: [https://appointment.ivacbd.com/](https://appointment.ivacbd.com/)
 ---
 
 ## 5. Security & Credentials
-- [ ] Confirm passwords are **never** stored in `chrome.storage.local` or `localStorage`. Inspect `chrome.storage.local` in DevTools console:
+- [ ] Confirm passwords are **never** stored in plaintext in `chrome.storage.local`, `localStorage`, or `IndexedDB`. Inspect `chrome.storage.local` in DevTools console:
   ```js
   chrome.storage.local.get(null, console.log);
   ```
-  Confirm no password fields exist anywhere in storage.
-- [ ] Confirm session password is kept only in memory for the active browser session.
+  Confirm that only `encryptedPassword`, `passwordSalt`, and `passwordIv` exist, and NO plaintext password exists.
+- [ ] Confirm Master PIN is **never** saved to disk or persistent storage.
+- [ ] Master PIN Unlock: Refresh the browser or close and reopen Chrome. Confirm the dashboard shows `Encrypted (PIN Needed)`. Enter `1234` and click **Unlock**. Confirm credentials become unlocked in session. Test with an incorrect PIN (`0000`) and confirm rejection.
 - [ ] Confirm no cookies or OTPs are logged to console.
 
 ---
 
-## 6. Website Integration & Workflow Progression
+## 6. Website Integration, Login & OTP Workflow
 - [ ] Open [https://appointment.ivacbd.com/](https://appointment.ivacbd.com/).
 - [ ] Dashboard check:
-  - If Primary PDF is missing, confirm **Start Assistant** button is disabled with warning.
-  - When Primary PDF is ready, confirm **Start Assistant** button enables.
+  - If Primary PDF is missing or credentials locked, confirm **Start Assistant** button is disabled with warning.
+  - When Primary PDF and credentials are ready, confirm **Start Assistant** button enables.
 - [ ] Click **Start Assistant**:
-  - State changes to `LOGIN_READY`.
-  - Mobile number input is detected and filled.
-  - Message prompts user: "Mobile filled. Please solve the CAPTCHA and click Login manually."
-- [ ] Human verification check:
-  - Assistant waits for user to solve CAPTCHA and submit.
-  - Does NOT attempt to auto-solve CAPTCHA or bypass OTP.
-- [ ] Page navigation detection:
-  - Navigate to OTP verification: state updates to `WAITING_FOR_USER_AUTHENTICATION`.
-  - After login completes and user navigates to Document Upload: state transitions to `DOCUMENT_UPLOAD`.
-  - Sequential upload initiates: Primary PDF first, then Additional PDFs in configured order (1, 2, 3).
-  - Centre selection route: state transitions to `CENTRE_SELECTION`, selects profile's preferred centre (`Dhaka`, `Rajshahi`, etc.).
-  - Appointment calendar: state transitions to `APPOINTMENT_SELECTION`.
-- [ ] **Payment Safety Handoff**:
+  - Assistant populates the selected profile's mobile number and password into the IVAC login fields.
+  - State changes to `WAITING_FOR_USER_AUTHENTICATION`.
+  - Amber notification instructs: *"Please complete the CAPTCHA and submit the login form on the page."*
+  - Automation pauses for manual human CAPTCHA completion.
+- [ ] OTP Verification:
+  - After submitting login and requesting OTP on the IVAC portal, the assistant detects the OTP verification page (`/otp` or OTP input element).
+  - An interactive **IVAC SMS Verification Code** section appears inside the floating assistant.
+  - Enter an invalid OTP (e.g., `12ab` or `123`) and verify validation error.
+  - Enter the numeric SMS OTP received on mobile (e.g., `123456`) and click **Verify OTP**.
+  - Assistant populates the website's OTP input and clicks the website's verify button.
+  - Status updates to *"Verifying..."*.
+  - Verification check: Assistant verifies genuine authentication before proceeding; does not prematurely claim success.
+  - Error check: If IVAC reports *"Invalid OTP"* or *"Expired OTP"*, the assistant displays the error and allows re-entering code.
+- [ ] Subsequent steps:
+  - After authenticated, sequential upload initiates: Primary PDF first, then Additional PDFs in configured order.
+  - Centre selection route: selects profile's preferred centre (`Dhaka`, `Rajshahi`, etc.).
+  - Payment Safety Handoff: When payment route is reached, assistant halts immediately and directs user to complete fee payment manually.
   - When payment route (`/payment`, `sslcommerz`, `bkash`) is reached, assistant **immediately halts**.
   - Displays blue alert: *"Payment stage reached. For your security, the assistant will NOT interact with payment systems. Please complete your fee payment manually."*
 - [ ] Controls check:

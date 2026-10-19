@@ -4,6 +4,11 @@ export interface IvacProfile {
   applicantName?: string;
   mobileNumber: string;
   preferredCentre: string;
+  // Encrypted IVAC password payload (AES-256-GCM + PBKDF2)
+  // Plaintext password is NEVER stored persistently
+  encryptedPassword?: string;
+  passwordSalt?: string;
+  passwordIv?: string;
   primaryDocumentId?: string;
   additionalDocumentIds: string[];
   createdAt: number;
@@ -15,8 +20,11 @@ export interface ProfileFormData {
   applicantName?: string;
   mobileNumber: string;
   preferredCentre: string;
-  // Session-only password field: not persisted in local storage
-  sessionPassword?: string;
+  // IVAC portal login password (required on creation)
+  password: string;
+  // Master Security PIN used to encrypt the IVAC password client-side
+  masterPin: string;
+  hasExistingPassword?: boolean;
 }
 
 export const SUPPORTED_IVAC_CENTRES = [

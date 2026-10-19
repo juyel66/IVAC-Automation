@@ -37,7 +37,7 @@ export function normalizeBdMobile(mobile: string): string {
 }
 
 /**
- * Validates profile form data
+ * Validates profile form data including required IVAC login password and Master PIN
  */
 export function validateProfileForm(
   data: ProfileFormData,
@@ -72,7 +72,26 @@ export function validateProfileForm(
     errors.preferredCentre = `Unsupported centre selected: ${data.preferredCentre}`;
   }
 
-  // 5. Duplicate Profile Check
+  // 5. IVAC Password validation
+  // If creating new profile, password is required
+  const isEditing = !!editingProfileId;
+  const isPasswordEmpty = !data.password || !data.password.trim();
+
+  if (!isEditing && isPasswordEmpty) {
+    errors.password = 'IVAC password is required.';
+  } else if (!isPasswordEmpty && data.password.trim().length < 4) {
+    errors.password = 'IVAC password must be at least 4 characters.';
+  }
+
+  // 6. Master PIN validation (required if setting a password)
+  const isSettingPassword = !isPasswordEmpty;
+  if (isSettingPassword) {
+    if (!data.masterPin || data.masterPin.trim().length < 4) {
+      errors.masterPin = 'Master Security PIN must be at least 4 characters to encrypt the password.';
+    }
+  }
+
+  // 7. Duplicate Profile Check
   const normalizedInputMobile = isValidBdMobile(data.mobileNumber) ? normalizeBdMobile(data.mobileNumber) : '';
   if (normalizedInputMobile) {
     const duplicate = existingProfiles.find(p => {
@@ -93,6 +112,28 @@ export function validateProfileForm(
 }
 
 /**
+ * Validates OTP code format (typically 4 to 6 numeric digits on IVAC)
+ */
+export function validateOtpFormat(otp: string): { isValid: boolean; error?: string } {
+  if (!otp || !otp.trim()) {
+    return { isValid: false, error: 'OTP code is required.' };
+  }
+
+  const cleanOtp = otp.trim();
+  const digitRegex = /^\d+$/;
+
+  if (!digitRegex.test(cleanOtp)) {
+    return { isValid: false, error: 'OTP must contain numbers only.' };
+  }
+
+  if (cleanOtp.length < 4 || cleanOtp.length > 8) {
+    return { isValid: false, error: 'OTP must be between 4 and 8 digits (typically 4 or 6).' };
+  }
+
+  return { isValid: true };
+}
+
+/**
  * Validates a PDF file before upload and persistence
  */
 export function validatePdfFile(file: File): { isValid: boolean; error?: string } {
@@ -100,7 +141,6 @@ export function validatePdfFile(file: File): { isValid: boolean; error?: string 
     return { isValid: false, error: 'No file was provided.' };
   }
 
-  // Check MIME type or file extension
   const isPdfMime = file.type === 'application/pdf';
   const isPdfExt = file.name.toLowerCase().endsWith('.pdf');
 
@@ -111,7 +151,6 @@ export function validatePdfFile(file: File): { isValid: boolean; error?: string 
     };
   }
 
-  // Check file size
   if (file.size === 0) {
     return { isValid: false, error: 'The selected PDF file is empty (0 bytes).' };
   }
@@ -138,7 +177,7 @@ export function validateDocumentAddition(
 ): { canAdd: boolean; error?: string } {
   if (isPrimary && existingPrimaryDocId) {
     return {
-      canAdd: true // Replacing primary document is allowed
+      canAdd: true
     };
   }
 

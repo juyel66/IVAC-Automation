@@ -104,10 +104,27 @@ export class IvacPageDetector {
 
   private detectOtpSignals(): string[] {
     const signals: string[] = [];
-    const otpInput = document.querySelector('input[name*="otp" i], input[id*="otp" i], input[placeholder*="otp" i], input[maxlength="6"]');
+    const url = window.location.href.toLowerCase();
+    const pathname = window.location.pathname.toLowerCase();
+
+    if (pathname.includes('/otp') || pathname.includes('/verify') || url.includes('otp')) {
+      signals.push('URL indicates OTP verification route');
+    }
+
+    const otpInput = document.querySelector(
+      'input[name*="otp" i], input[id*="otp" i], input[placeholder*="otp" i], input[name*="code" i], input[maxlength="6"], input[maxlength="4"], .otp-digit'
+    );
     if (otpInput) {
       signals.push('OTP input field present');
     }
+
+    if (document.body) {
+      const bodyText = document.body.innerText.toLowerCase();
+      if (bodyText.includes('enter otp') || bodyText.includes('verification code') || bodyText.includes('otp sent')) {
+        signals.push('OTP instructional text found on page');
+      }
+    }
+
     return signals;
   }
 

@@ -1,11 +1,13 @@
 import { WorkflowState, IvacPageType, WorkflowSession, WorkflowLogEntry } from '../../types/workflow';
 import { IvacProfile } from '../../types/profile';
 import { documentRepository } from '../../storage/documentRepository';
+import { credentialManager } from '../security/credentialManager';
 import { loginAdapter } from '../../content/adapters/loginAdapter';
 import { documentAdapter } from '../../content/adapters/documentAdapter';
 import { centreAdapter } from '../../content/adapters/centreAdapter';
 import { appointmentAdapter } from '../../content/adapters/appointmentAdapter';
 import { PaymentAdapter } from '../../content/adapters/paymentAdapter';
+import { validateOtpFormat } from '../../utils/validation';
 
 export type WorkflowListener = (session: WorkflowSession) => void;
 
@@ -18,12 +20,17 @@ export class WorkflowEngine {
     uploadedDocumentIds: [],
     errorMessage: null,
     isPaused: false,
+    authStatus: 'idle',
+    otpState: {
+      isRequired: false,
+      isSubmitting: false
+    },
     logs: []
   };
 
   private listeners: Set<WorkflowListener> = new Set();
-  private sessionPassword: string | null = null;
   private activeProfile: IvacProfile | null = null;
+  private authCheckTimer: number | null = null;
 
   constructor() {
     this.addLog('info', 'IVAC Assistant Engine initialized.');
@@ -55,7 +62,7 @@ export class WorkflowEngine {
       page: page || this.session.detectedPage
     };
 
-    this.session.logs = [entry, ...this.session.logs.slice(0, 49)]; // Keep last 50 logs
+    this.session.logs = [entry, ...this.session.logs.slice(0, 49)];
     this.notify();
   }
 
@@ -87,7 +94,7 @@ export class WorkflowEngine {
   /**
    * Primary entry point when user clicks "Start"
    */
-  public async start(profile: IvacProfile, sessionPassword?: string): Promise<void> {
+  public async start(profile: IvacProfile): Promise<void> {
     if (this.session.state !== 'IDLE' && this.session.state !== 'STOPPED' && this.session.state !== 'ERROR' && this.session.state !== 'COMPLETED') {
       this.addLog('warning', 'Workflow is already active.');
       return;
@@ -100,13 +107,22 @@ export class WorkflowEngine {
       return;
     }
 
+    // Check credentials readiness
+    const unlockedPassword = credentialManager.getUnlockedPassword(profile.id);
+    if (!unlockedPassword) {
+      this.setState('ERROR', 'Profile password is locked. Please enter your Master PIN to unlock credentials.');
+      this.addLog('error', 'Cannot start: Profile password is locked. Master PIN required.');
+      return;
+    }
+
     this.activeProfile = profile;
-    this.sessionPassword = sessionPassword || null;
     this.session.activeProfileId = profile.id;
     this.session.isPaused = false;
     this.session.errorMessage = null;
     this.session.uploadedDocumentIds = [];
     this.session.currentDocumentIndex = 0;
+    this.session.authStatus = 'idle';
+    this.session.otpState = { isRequired: false, isSubmitting: false };
 
     this.setState('PROFILE_SELECTED');
     this.addLog('info', `Starting assistant workflow for profile: "${profile.displayName}"`);
@@ -141,14 +157,23 @@ export class WorkflowEngine {
   }
 
   public stop() {
+    if (this.authCheckTimer) {
+      window.clearTimeout(this.authCheckTimer);
+      this.authCheckTimer = null;
+    }
     this.session.isPaused = false;
     this.session.pausedReason = undefined;
-    this.sessionPassword = null;
+    this.session.otpState = { isRequired: false, isSubmitting: false };
+    this.session.authStatus = 'idle';
     this.setState('STOPPED');
     this.addLog('info', 'Workflow was stopped by user.');
   }
 
   public reset() {
+    if (this.authCheckTimer) {
+      window.clearTimeout(this.authCheckTimer);
+      this.authCheckTimer = null;
+    }
     this.session = {
       state: 'IDLE',
       activeProfileId: null,
@@ -157,10 +182,14 @@ export class WorkflowEngine {
       uploadedDocumentIds: [],
       errorMessage: null,
       isPaused: false,
+      authStatus: 'idle',
+      otpState: {
+        isRequired: false,
+        isSubmitting: false
+      },
       logs: []
     };
     this.activeProfile = null;
-    this.sessionPassword = null;
     this.addLog('info', 'Workflow reset to IDLE.');
   }
 
@@ -172,32 +201,48 @@ export class WorkflowEngine {
     if (!this.activeProfile) return;
 
     switch (page) {
-      case 'LOGIN':
+      case 'LOGIN': {
         this.setState('LOGIN_READY');
-        this.addLog('info', 'Executing login helper...');
+        this.addLog('info', 'Executing profile login helper...');
+        const password = credentialManager.getUnlockedPassword(this.activeProfile.id) || undefined;
         const loginRes = loginAdapter.fillCredentials(
           this.activeProfile.mobileNumber,
-          this.sessionPassword || undefined
+          password
         );
+
         if (loginRes.success) {
           this.setState('WAITING_FOR_USER_AUTHENTICATION');
+          this.session.authStatus = 'awaiting_captcha';
           this.addLog('success', loginRes.message);
+          this.addLog('warning', 'Please complete the CAPTCHA and submit the login form on the page.');
         } else {
           this.addLog('warning', loginRes.message);
         }
         break;
+      }
 
-      case 'OTP_VERIFICATION':
+      case 'OTP_VERIFICATION': {
         this.setState('WAITING_FOR_USER_AUTHENTICATION');
-        this.addLog('info', 'OTP verification detected. Please enter your SMS code on the page.');
+        this.session.authStatus = 'awaiting_otp';
+        this.session.otpState = {
+          isRequired: true,
+          isSubmitting: false
+        };
+        this.addLog('info', 'OTP verification detected. Enter your SMS code in the assistant.');
+        this.notify();
         break;
+      }
 
       case 'DOCUMENT_UPLOAD':
+        this.session.otpState.isRequired = false;
+        this.session.authStatus = 'authenticated';
         this.setState('DOCUMENT_UPLOAD');
         await this.handleDocumentUploadStage();
         break;
 
       case 'CENTRE_SELECTION':
+        this.session.otpState.isRequired = false;
+        this.session.authStatus = 'authenticated';
         this.setState('CENTRE_SELECTION');
         this.handleCentreSelectionStage();
         break;
@@ -208,16 +253,118 @@ export class WorkflowEngine {
         break;
 
       case 'PAYMENT':
-        // Mandatory Safety Stop
         this.setState('PAYMENT_HANDOFF');
         this.addLog('warning', PaymentAdapter.HANDOFF_MESSAGE);
         break;
 
       default:
-        // Other pages or unknown - remain in current state and log
-        this.addLog('info', `Waiting on page: ${page}`);
+        // If we were awaiting auth and detected a non-login page with auth confirmation
+        if (this.session.state === 'WAITING_FOR_USER_AUTHENTICATION' && loginAdapter.detectAuthSuccess()) {
+          this.session.authStatus = 'authenticated';
+          this.session.otpState.isRequired = false;
+          this.addLog('success', 'User authentication confirmed by website.');
+        } else {
+          this.addLog('info', `Waiting on page: ${page}`);
+        }
         break;
     }
+  }
+
+  /**
+   * Action executed when user enters OTP in the assistant and clicks "Verify OTP"
+   */
+  public async submitOtpVerification(otpCode: string): Promise<{ success: boolean; message: string }> {
+    const validation = validateOtpFormat(otpCode);
+    if (!validation.isValid) {
+      const err = validation.error || 'Invalid OTP format.';
+      this.session.otpState.errorMessage = err;
+      this.notify();
+      return { success: false, message: err };
+    }
+
+    this.session.otpState.isSubmitting = true;
+    this.session.otpState.errorMessage = undefined;
+    this.session.otpState.lastSubmittedOtp = otpCode;
+    this.session.authStatus = 'submitting_otp';
+    this.addLog('info', `Populating OTP code into website input...`);
+    this.notify();
+
+    // 1. Fill OTP into page elements
+    const fillRes = loginAdapter.fillOtp(otpCode);
+    if (!fillRes.success) {
+      this.session.otpState.isSubmitting = false;
+      this.session.otpState.errorMessage = fillRes.message;
+      this.session.authStatus = 'awaiting_otp';
+      this.addLog('error', fillRes.message);
+      this.notify();
+      return { success: false, message: fillRes.message };
+    }
+
+    // Brief delay before triggering submit
+    await new Promise(r => setTimeout(r, 400));
+
+    // 2. Submit the OTP form on the website
+    const submitRes = loginAdapter.submitOtp();
+    if (!submitRes.success) {
+      this.session.otpState.isSubmitting = false;
+      this.session.otpState.errorMessage = submitRes.message;
+      this.session.authStatus = 'awaiting_otp';
+      this.addLog('error', submitRes.message);
+      this.notify();
+      return { success: false, message: submitRes.message };
+    }
+
+    this.addLog('info', 'Submitted OTP to website. Awaiting confirmation...');
+
+    // 3. Bounded check for authentication success or error alerts (up to 12 seconds)
+    return new Promise((resolve) => {
+      let attempts = 0;
+      const maxAttempts = 24; // 24 * 500ms = 12s
+
+      const checkAuth = setInterval(() => {
+        attempts++;
+
+        // Check for visible error banners on page (e.g. "Invalid OTP", "Expired OTP")
+        const pageError = loginAdapter.detectPageErrors();
+        if (pageError) {
+          clearInterval(checkAuth);
+          this.session.otpState.isSubmitting = false;
+          this.session.otpState.errorMessage = pageError;
+          this.session.authStatus = 'auth_failed';
+          this.addLog('error', `Website reported: ${pageError}`);
+          this.notify();
+          resolve({ success: false, message: pageError });
+          return;
+        }
+
+        // Check for genuine successful authentication
+        if (loginAdapter.detectAuthSuccess()) {
+          clearInterval(checkAuth);
+          this.session.otpState.isSubmitting = false;
+          this.session.otpState.isRequired = false;
+          this.session.authStatus = 'authenticated';
+          this.addLog('success', 'Authentication confirmed! Proceeding to next workflow step.');
+          this.notify();
+
+          // Advance state based on newly active page
+          this.handlePageTransition(this.session.detectedPage);
+          resolve({ success: true, message: 'Authentication confirmed.' });
+          return;
+        }
+
+        // Timeout fallback
+        if (attempts >= maxAttempts) {
+          clearInterval(checkAuth);
+          this.session.otpState.isSubmitting = false;
+          const timeoutMsg = 'Verification timed out. Please check the website response or click Verify directly on the page.';
+          this.session.otpState.errorMessage = timeoutMsg;
+          this.session.authStatus = 'awaiting_otp';
+          this.addLog('warning', timeoutMsg);
+          this.notify();
+          resolve({ success: false, message: timeoutMsg });
+        }
+      }, 500);
+    });
   }
 
   private async handleDocumentUploadStage() {
@@ -231,7 +378,6 @@ export class WorkflowEngine {
       return;
     }
 
-    // Filter out already uploaded documents to prevent re-upload on resume
     const pendingDocs = allDocs.filter(d => !this.session.uploadedDocumentIds.includes(d.id));
 
     if (pendingDocs.length === 0) {

@@ -1,10 +1,12 @@
 /**
- * Login Adapter for IVAC Portal (https://appointment.ivacbd.com/)
+ * Login & OTP Authentication Adapter for IVAC Portal (https://appointment.ivacbd.com/)
  * 
- * Safety Guarantee:
+ * Safety Guarantees:
  * - Never bypasses CAPTCHA, Cloudflare, or OTP challenges.
- * - Dispatches standard DOM events (input, change, blur) so React / Vue forms update their state.
- * - Does not auto-submit credentials without explicit user confirmation.
+ * - Dispatches standard DOM events (input, change, blur) for full framework compatibility.
+ * - OTP is only submitted to the website upon explicit user confirmation.
+ * - Detects live page errors (invalid credentials, expired OTP, invalid OTP).
+ * - Verifies genuine authentication success before advancing to next workflow step.
  */
 
 export interface LoginFormElements {
@@ -14,13 +16,15 @@ export interface LoginFormElements {
   captchaElement: HTMLElement | null;
 }
 
+export interface OtpFormElements {
+  singleInput: HTMLInputElement | null;
+  segmentedInputs: HTMLInputElement[];
+  submitButton: HTMLElement | null;
+  resendButton: HTMLElement | null;
+}
+
 export class LoginAdapter {
-  /**
-   * Verified & heuristic selectors for IVAC login form.
-   * If real website uses custom IDs or attributes, add them to these selector lists.
-   */
   private selectors = {
-    // TODO: Verify against live DOM if IVAC updates input name/id
     mobile: [
       'input[name="phone"]',
       'input[name="mobile"]',
@@ -37,9 +41,9 @@ export class LoginAdapter {
     ],
     submitBtn: [
       'button[type="submit"]',
-      'button:has-text("Login")',
-      'button:has-text("Sign In")',
-      'input[type="submit"]'
+      'input[type="submit"]',
+      'button.btn-login',
+      '#login-btn'
     ],
     captcha: [
       '#captcha',
@@ -47,6 +51,28 @@ export class LoginAdapter {
       '.h-captcha',
       '[class*="captcha" i]',
       'img[src*="captcha" i]'
+    ],
+    otpInputs: [
+      'input[name*="otp" i]',
+      'input[id*="otp" i]',
+      'input[placeholder*="otp" i]',
+      'input[name*="verification_code" i]',
+      'input[name*="code" i]',
+      'input[maxlength="6"]',
+      'input[maxlength="4"]'
+    ],
+    otpSubmitBtns: [
+      'button[type="submit"]',
+      '#verify-otp',
+      'button[id*="verify" i]',
+      'button[class*="verify" i]',
+      'input[type="submit"]'
+    ],
+    resendOtp: [
+      'button[id*="resend" i]',
+      'a[id*="resend" i]',
+      'button[class*="resend" i]',
+      'a[class*="resend" i]'
     ]
   };
 
@@ -78,7 +104,7 @@ export class LoginAdapter {
           break;
         }
       } catch {
-        // Ignore pseudo-selectors if unsupported
+        // ignore
       }
     }
 
@@ -92,6 +118,44 @@ export class LoginAdapter {
     }
 
     return { mobileInput, passwordInput, submitButton, captchaElement };
+  }
+
+  public findOtpElements(): OtpFormElements {
+    let singleInput: HTMLInputElement | null = null;
+    for (const selector of this.selectors.otpInputs) {
+      const el = document.querySelector<HTMLInputElement>(selector);
+      if (el && !el.disabled) {
+        singleInput = el;
+        break;
+      }
+    }
+
+    // Check for segmented multi-box OTP (e.g. 6 single-digit inputs)
+    const segmentedInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>(
+        'input[maxlength="1"][type="text"], input[maxlength="1"][type="tel"], .otp-digit, input[data-otp-index]'
+      )
+    ).filter(input => !input.disabled);
+
+    let submitButton: HTMLElement | null = null;
+    for (const selector of this.selectors.otpSubmitBtns) {
+      const el = document.querySelector<HTMLElement>(selector);
+      if (el) {
+        submitButton = el;
+        break;
+      }
+    }
+
+    let resendButton: HTMLElement | null = null;
+    for (const selector of this.selectors.resendOtp) {
+      const el = document.querySelector<HTMLElement>(selector);
+      if (el) {
+        resendButton = el;
+        break;
+      }
+    }
+
+    return { singleInput, segmentedInputs, submitButton, resendButton };
   }
 
   /**
@@ -115,10 +179,9 @@ export class LoginAdapter {
   }
 
   /**
-   * Pre-fill mobile number and password if provided.
-   * Returns true if fields were found and populated.
+   * Pre-fill mobile number and password from profile.
    */
-  public fillCredentials(mobileNumber: string, sessionPassword?: string): { success: boolean; message: string } {
+  public fillCredentials(mobileNumber: string, password?: string): { success: boolean; message: string } {
     const elements = this.findFormElements();
 
     if (!elements.mobileInput) {
@@ -130,8 +193,8 @@ export class LoginAdapter {
 
     this.setInputValue(elements.mobileInput, mobileNumber);
 
-    if (sessionPassword && elements.passwordInput) {
-      this.setInputValue(elements.passwordInput, sessionPassword);
+    if (password && elements.passwordInput) {
+      this.setInputValue(elements.passwordInput, password);
     }
 
     const hasCaptcha = !!elements.captchaElement;
@@ -139,9 +202,130 @@ export class LoginAdapter {
     return {
       success: true,
       message: hasCaptcha
-        ? 'Mobile filled. Please solve the CAPTCHA and click Login manually.'
-        : 'Credentials populated. Please review and click Login.'
+        ? 'Mobile & password populated. Please solve the CAPTCHA and submit the login form on the page.'
+        : 'Credentials populated. Please complete verification on the page.'
     };
+  }
+
+  /**
+   * Populates the website's OTP input with code entered by user in the assistant
+   */
+  public fillOtp(otpCode: string): { success: boolean; message: string; hasInput: boolean } {
+    const elements = this.findOtpElements();
+
+    // Case 1: Single OTP input
+    if (elements.singleInput) {
+      this.setInputValue(elements.singleInput, otpCode);
+      return {
+        success: true,
+        hasInput: true,
+        message: 'OTP filled into the website input field.'
+      };
+    }
+
+    // Case 2: Segmented digits inputs
+    if (elements.segmentedInputs.length > 0) {
+      const digits = otpCode.split('');
+      elements.segmentedInputs.forEach((input, index) => {
+        if (digits[index] !== undefined) {
+          this.setInputValue(input, digits[index]);
+        }
+      });
+      return {
+        success: true,
+        hasInput: true,
+        message: `OTP filled across ${elements.segmentedInputs.length} digit boxes.`
+      };
+    }
+
+    return {
+      success: false,
+      hasInput: false,
+      message: 'Could not detect an active OTP input on the website. Please paste the code directly on the page.'
+    };
+  }
+
+  /**
+   * Submits the OTP form ONLY when explicitly confirmed by the user
+   */
+  public submitOtp(): { success: boolean; message: string } {
+    const elements = this.findOtpElements();
+
+    if (!elements.submitButton) {
+      return {
+        success: false,
+        message: 'Could not find the Verify/Submit button on the website. Please click Verify directly on the page.'
+      };
+    }
+
+    try {
+      elements.submitButton.click();
+      return {
+        success: true,
+        message: 'Submitted OTP verification. Waiting for website response...'
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Failed to trigger verification button: ${err.message}`
+      };
+    }
+  }
+
+  /**
+   * Checks for error messages displayed on the website
+   */
+  public detectPageErrors(): string | null {
+    const errorContainers = Array.from(document.querySelectorAll(
+      '.alert-danger, .error-message, .invalid-feedback, .text-danger, .toast-error, [role="alert"]'
+    ));
+
+    for (const el of errorContainers) {
+      const text = el.textContent?.trim() || '';
+      if (text.length > 3) {
+        const lower = text.toLowerCase();
+        if (
+          lower.includes('invalid') ||
+          lower.includes('incorrect') ||
+          lower.includes('expired') ||
+          lower.includes('wrong') ||
+          lower.includes('failed') ||
+          lower.includes('timed out')
+        ) {
+          return text;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Detects if authentication succeeded based on genuine post-auth indicators
+   */
+  public detectAuthSuccess(): boolean {
+    const pathname = window.location.pathname.toLowerCase();
+    const url = window.location.href.toLowerCase();
+
+    // 1. URL redirected away from login and otp routes
+    const isLoginOrOtpRoute = pathname === '/' || pathname.includes('/login') || pathname.includes('/otp') || pathname.includes('/signin') || url.includes('/login') || url.includes('/otp');
+    if (!isLoginOrOtpRoute) {
+      return true;
+    }
+
+    // 2. Presence of post-auth elements
+    const logoutBtn = document.querySelector('a[href*="logout" i], button[id*="logout" i], .user-profile, .applicant-menu');
+    if (logoutBtn) {
+      return true;
+    }
+
+    // 3. User session name / welcome badge
+    const welcomeBadge = document.querySelector('.user-name, .logged-in-user, #user_info');
+    if (welcomeBadge) {
+      return true;
+    }
+
+    return false;
   }
 }
 

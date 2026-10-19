@@ -22,6 +22,8 @@ import { ExtensionSettings, settingsRepository } from '../storage/settingsReposi
 import { profileRepository } from '../storage/profileRepository';
 import { documentRepository } from '../storage/documentRepository';
 import { workflowEngine } from '../features/workflow/workflowEngine';
+import { encryptPassword } from '../utils/crypto';
+import { credentialManager } from '../features/security/credentialManager';
 
 type ActiveTab = 'dashboard' | 'profiles' | 'documents' | 'workflow' | 'settings';
 
@@ -106,6 +108,11 @@ export const FloatingPanel: React.FC = () => {
   const handleSaveProfile = async (formData: ProfileFormData, profileId?: string) => {
     const now = Date.now();
     let targetProfile: IvacProfile;
+    let encryptedCreds: { ciphertext: string; salt: string; iv: string } | null = null;
+
+    if (formData.password && formData.masterPin) {
+      encryptedCreds = await encryptPassword(formData.password, formData.masterPin);
+    }
 
     if (profileId) {
       const existing = profiles.find((p) => p.id === profileId);
@@ -115,6 +122,9 @@ export const FloatingPanel: React.FC = () => {
         applicantName: formData.applicantName?.trim() || undefined,
         mobileNumber: formData.mobileNumber.trim(),
         preferredCentre: formData.preferredCentre,
+        encryptedPassword: encryptedCreds ? encryptedCreds.ciphertext : existing?.encryptedPassword,
+        passwordSalt: encryptedCreds ? encryptedCreds.salt : existing?.passwordSalt,
+        passwordIv: encryptedCreds ? encryptedCreds.iv : existing?.passwordIv,
         primaryDocumentId: existing?.primaryDocumentId,
         additionalDocumentIds: existing?.additionalDocumentIds || [],
         createdAt: existing?.createdAt || now,
@@ -128,10 +138,18 @@ export const FloatingPanel: React.FC = () => {
         applicantName: formData.applicantName?.trim() || undefined,
         mobileNumber: formData.mobileNumber.trim(),
         preferredCentre: formData.preferredCentre,
+        encryptedPassword: encryptedCreds?.ciphertext,
+        passwordSalt: encryptedCreds?.salt,
+        passwordIv: encryptedCreds?.iv,
         additionalDocumentIds: [],
         createdAt: now,
         updatedAt: now
       };
+    }
+
+    // Cache unlocked password in memory for active session
+    if (formData.password) {
+      credentialManager.setUnlockedPassword(targetProfile.id, formData.password);
     }
 
     await profileRepository.saveProfile(targetProfile);
@@ -141,6 +159,23 @@ export const FloatingPanel: React.FC = () => {
 
     setIsCreatingProfile(false);
     setEditingProfile(null);
+  };
+
+  // Handle Master PIN unlock
+  const handleUnlockProfile = async (pin: string) => {
+    if (!selectedProfile) return { success: false, error: 'No profile selected.' };
+    const res = await credentialManager.unlockWithPin(selectedProfile, pin);
+    if (res.success) {
+      workflowEngine.addLog('success', `Credentials unlocked for profile: "${selectedProfile.displayName}"`);
+      // Trigger re-render
+      setProfiles([...profiles]);
+    }
+    return res;
+  };
+
+  // Handle OTP Verification submission from assistant
+  const handleVerifyOtp = async (otp: string) => {
+    return await workflowEngine.submitOtpVerification(otp);
   };
 
   // Handle Profile Delete
@@ -362,7 +397,7 @@ export const FloatingPanel: React.FC = () => {
           }`}
         >
           <Activity className="w-3.5 h-3.5" />
-          <span>Flow</span>
+          <span>Logs</span>
         </button>
 
         <button
@@ -391,15 +426,16 @@ export const FloatingPanel: React.FC = () => {
             documents={documents}
             workflowSession={workflowSession}
             onSelectProfile={handleSelectProfile}
-            onStartWorkflow={(pwd) => {
+            onStartWorkflow={() => {
               if (selectedProfile) {
-                workflowEngine.start(selectedProfile, pwd);
-                setActiveTab('workflow');
+                workflowEngine.start(selectedProfile);
               }
             }}
             onPauseWorkflow={() => workflowEngine.pause()}
             onResumeWorkflow={() => workflowEngine.resume()}
             onStopWorkflow={() => workflowEngine.stop()}
+            onVerifyOtp={handleVerifyOtp}
+            onUnlockProfile={handleUnlockProfile}
             onSwitchTab={(tab) => setActiveTab(tab)}
           />
         )}
