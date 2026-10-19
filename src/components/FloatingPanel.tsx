@@ -180,6 +180,7 @@ export const FloatingPanel: React.FC = () => {
 
   // Handle Profile Delete
   const handleDeleteProfile = async (id: string) => {
+    credentialManager.lockProfile(id);
     await profileRepository.deleteProfile(id);
     const updatedProfiles = await profileRepository.getAllProfiles();
     setProfiles(updatedProfiles);
