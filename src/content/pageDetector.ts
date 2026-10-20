@@ -145,15 +145,28 @@ export class IvacPageDetector {
 
   private detectLoginSignals(url: string, pathname: string): string[] {
     const signals: string[] = [];
-    if (pathname === '/' || pathname.includes('/login') || pathname.includes('/signin') || url.includes('login')) {
-      signals.push('URL indicates login route');
+
+    // If verified post-auth signals are present in DOM, page is NOT a login page
+    if (document.querySelector('a[href*="logout" i], button[id*="logout" i], .logged-in-user, .user-profile, .applicant-menu')) {
+      return signals;
     }
+
     // Check for mobile/password input fields
     const passwordInput = document.querySelector('input[type="password"]');
-    const mobileInput = document.querySelector('input[name*="mobile" i], input[id*="mobile" i], input[placeholder*="mobile" i], input[type="tel"]');
+    const mobileInput = document.querySelector(
+      'input[name*="mobile" i], input[id*="mobile" i], input[name="phone"], input[id="phone"], input[placeholder*="mobile" i], input[placeholder*="phone" i], input[type="tel"]'
+    );
+
     if (passwordInput && mobileInput) {
       signals.push('Mobile and password input fields present');
     }
+
+    if (pathname.includes('/login') || pathname.includes('/signin') || url.includes('/login')) {
+      signals.push('URL indicates login route');
+    } else if (pathname === '/' && (mobileInput || passwordInput)) {
+      signals.push('Root URL with login input fields present');
+    }
+
     return signals;
   }
 
