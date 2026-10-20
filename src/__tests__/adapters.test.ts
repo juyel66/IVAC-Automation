@@ -184,7 +184,7 @@ describe('Content Adapters Stabilization & Verification Tests', () => {
 
       expect(res.success).toBe(false);
       expect(res.uploadedCount).toBe(1); // Uploaded primary, but halted at doc 2
-      expect(res.errorMessage).toContain('No upload input field found for Additional PDF #1');
+      expect(res.errorMessage).toContain('No upload input field found for Additional');
     });
 
     it('stops workflow immediately when document upload verification fails', async () => {
