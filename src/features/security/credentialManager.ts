@@ -8,22 +8,63 @@ class SessionCredentialManager {
 
   public setUnlockedPassword(profileId: string, password: string): void {
     this.inMemoryVault.set(profileId, password);
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem(`ivac_vault_${profileId}`, btoa(encodeURIComponent(password)));
+      }
+    } catch {
+      // ignore
+    }
   }
 
   public getUnlockedPassword(profileId: string): string | null {
-    return this.inMemoryVault.get(profileId) || null;
+    if (this.inMemoryVault.has(profileId)) {
+      return this.inMemoryVault.get(profileId)!;
+    }
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const stored = window.sessionStorage.getItem(`ivac_vault_${profileId}`);
+        if (stored) {
+          const pass = decodeURIComponent(atob(stored));
+          this.inMemoryVault.set(profileId, pass);
+          return pass;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
   }
 
   public isProfileUnlocked(profileId: string): boolean {
-    return this.inMemoryVault.has(profileId);
+    return this.getUnlockedPassword(profileId) !== null;
   }
 
   public lockProfile(profileId: string): void {
     this.inMemoryVault.delete(profileId);
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem(`ivac_vault_${profileId}`);
+      }
+    } catch {
+      // ignore
+    }
   }
 
   public lockAll(): void {
     this.inMemoryVault.clear();
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const keys = Object.keys(window.sessionStorage);
+        for (const k of keys) {
+          if (k.startsWith('ivac_vault_')) {
+            window.sessionStorage.removeItem(k);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
   }
 
   /**
