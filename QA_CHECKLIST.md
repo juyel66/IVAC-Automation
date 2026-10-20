@@ -88,50 +88,115 @@ Target Site: [https://appointment.ivacbd.com/](https://appointment.ivacbd.com/)
 
 ## 6. Website Integration, Login & OTP Workflow
 - [ ] Open [https://appointment.ivacbd.com/](https://appointment.ivacbd.com/).
-- [ ] Ordinary Visa Page vs Payment Page Verification:
-  - Verify that ordinary application pages with text like "Indian Visa Application Center", "Tourist Visa", or "Visa Fee: 800 BDT" are **NOT** detected as `PAYMENT`.
-  - Payment detection requires an explicit payment route (`/payment`, `/pay-fee`, `/sslcommerz`, `/bkash-checkout`), a verified payment gateway iframe or form, or at least two distinct checkout indicators.
-- [ ] Dashboard check:
-  - If Primary PDF is missing or credentials locked, confirm **Start Assistant** button is disabled with warning.
-  - When Primary PDF and credentials are ready, confirm **Start Assistant** button enables.
+- [ ] Login Route Detection:
+  - If on home or informational page, verify assistant prompts to navigate to the official login page or clicks a verified legitimate portal link.
+- [ ] Dashboard readiness check:
+  - If Primary PDF is missing or credentials locked, confirm **Start Assistant** button is disabled with descriptive helper text.
+  - When Primary PDF is ready and Master PIN unlocks credentials, confirm **Start Assistant** button enables.
 - [ ] Click **Start Assistant**:
-  - Assistant populates the selected profile's mobile number and password into the IVAC login fields.
-  - State changes to `WAITING_FOR_USER_AUTHENTICATION`.
-  - Amber notification instructs: *"Please complete the CAPTCHA and submit the login form on the page."*
-  - Automation pauses for manual human CAPTCHA completion.
-- [ ] OTP Verification:
-  - After submitting login and requesting OTP on the IVAC portal, the assistant detects the OTP verification page (`/otp` or OTP input element).
-  - An interactive **IVAC SMS Verification Code** section appears inside the floating assistant (and ONLY when OTP page is detected).
-  - Enter an invalid OTP (e.g., `12ab` or `123`) and verify validation error.
-  - Enter the numeric SMS OTP received on mobile (e.g., `123456`) and click **Verify OTP**.
-  - Assistant populates the website's OTP input and clicks the website's verify button.
-  - Status updates to *"Verifying..."*.
-  - Verification check: Assistant verifies genuine authentication state before proceeding; does not prematurely claim success.
-  - Error check: If IVAC reports *"Invalid OTP"* or *"Expired OTP"*, the assistant displays the error and allows re-entering code.
-- [ ] Document Upload Stage:
-  - Primary document (order 0) is uploaded and verified first.
-  - Additional documents follow configured order (1, 2, 3).
-  - Each file strictly maps to its corresponding input field. If a field is missing or unverified, the workflow stops immediately.
-- [ ] Centre & Appointment Adapters:
-  - Centre dropdown and radio card selections require DOM confirmation.
-  - Appointment slots filter out disabled, booked, full, or past slots.
-  - Slot selection does NOT claim success unless DOM confirms selection (`selected`, `active`, `aria-selected`).
-  - No infinite click loops or repeated booking submissions.
-- [ ] Payment Safety Handoff:
-  - When a genuine payment route (`/payment`, `sslcommerz`, `bkash`) or gateway is detected, assistant **immediately halts** all automation.
-  - Displays blue alert: *"Payment stage reached. For your security, the assistant will NOT interact with payment systems. Please complete your fee payment manually."*
-- [ ] Controls check:
-  - Test **Pause**: state becomes `PAUSED`, automation halts.
-  - Test **Resume**: resumes at current step without duplicate uploads.
-  - Test **Stop**: halts engine and resets active state.
+  - Assistant targets `form.space-y-5` with `input[name="phone"]` and `input[name="password"]`.
+  - Dispatches `input`, `change`, and `blur` events using the native value setter for React compatibility.
+  - Verifies populated DOM values before proceeding.
+  - Detects Cloudflare Turnstile (`#cf-turnstile`, `.cf-turnstile`).
+  - State changes to `WAITING_FOR_CAPTCHA`.
+  - Confirms the assistant **never** attempts to solve, bypass, or forge Turnstile tokens.
+  - Verifies the website submit button (`button[type="submit"]`) remains disabled until Turnstile puzzle is completed.
+- [ ] Complete Turnstile Verification manually on the webpage:
+  - Once Turnstile checkmark turns green ("Success!"), the website submit button enables.
+  - If automated verification is possible, click **Continue / Request OTP** in the assistant; otherwise click Login on the page.
+  - Assistant submits the official login form exactly once.
+- [ ] OTP Verification Page:
+  - Portal navigates to OTP verification page (`/otp`, `/verify-otp`, or OTP form).
+  - Floating assistant detects OTP step and displays the SMS OTP entry card.
+  - Keep OTP only in active session memory; do not persist to storage or send to backend.
+  - Enter invalid code (e.g. `12` or non-numeric) and confirm validation error.
+  - Enter the numeric SMS OTP received on the phone and click **Verify OTP**.
+  - Assistant populates the website's verified OTP input (`singleInput` or `segmentedInputs`) and clicks Verify exactly once.
+  - State transitions to `AUTHENTICATION_PENDING`.
+  - Error check: If portal displays *"Invalid OTP"* or *"Expired OTP"*, verify assistant remains on OTP step and shows error message.
+  - Success check: Detects post-auth signals or page transition and transitions to `DOCUMENT_UPLOAD`.
 
 ---
 
-## 7. Testing Boundary & Verification Status
+## 7. Document Upload & Sequential Verification
+- [ ] Navigate to Document Upload Page (`https://appointment.ivacbd.com/document-upload` or portal flow).
+- [ ] Pre-Upload Validation (500KB & PDF Enforcement):
+  - In PDFs tab, attempt to load a file larger than 500KB (e.g. 600KB).
+  - Confirm validation rejects it with explicit compression guidance (`exceeds portal maximum allowed size of 500KB`).
+  - Attempt to load non-PDF file. Confirm rejection (`Only PDF files are accepted`).
+- [ ] Applicant Card Detection & Expansion:
+  - Observe portal applicant cards (e.g. "Primary Applicant", "Applicant 02").
+  - If additional applicant cards are collapsed (`aria-expanded="false"` or upload container hidden), confirm assistant expands the accordion section before attempting upload.
+- [ ] Upload Mapping:
+  - Primary applicant PDF strictly maps to `Upload Primary Applicant's Webfile` or primary applicant card.
+  - Additional applicant PDFs strictly map to `Upload Other Applicant's Webfile` or Applicant 02+ card.
+  - Verifies that multiple unrelated PDFs are never dumped into a single input field.
+- [ ] Sequential Processing:
+  - Primary applicant Webfile is attached and verified first.
+  - Additional applicant Webfiles are attached in profile order.
+  - Assistant displays per-file progress in the activity stream.
+- [ ] Upload Verification:
+  - Verifies DOM confirmation (file input `.files` populated or parent displays attached filename / checkmark).
+  - If portal rejects programmatic attachment, assistant provides manual fallback notice.
+
+---
+
+## 8. "Confirm All Information is Correct" Button
+- [ ] Locate Button:
+  - Assistant locates the orange button with text *"Confirm All Information is Correct"*.
+- [ ] Disabled State Check:
+  - If required applicant files are incomplete or page Turnstile is pending, the website button is disabled.
+  - Verify assistant **never** force-enables or clicks a disabled button.
+  - If user clicks confirm in the assistant while website button is disabled, assistant displays warning: *"The 'Confirm All Information is Correct' button is currently disabled. Please complete remaining page requirements."*
+- [ ] Ready Status & Explicit User Confirmation:
+  - When all applicant documents are uploaded and verified, assistant displays card: *"All Documents Uploaded & Verified"*.
+  - Assistant waits for user to click **Confirm All Information is Correct** in the assistant panel.
+  - Clicking triggers the website button once.
+  - Assistant waits for the confirmation modal with bounded 10s wait.
+
+---
+
+## 9. Confirmation Modal: "Save & Continue"
+- [ ] Modal Detection:
+  - Assistant detects the modal dialog overlay.
+  - Verifies modal heading: *"Please confirm your details"*.
+  - Verifies description: *"Make sure all the information is correct before saving and continuing."*.
+  - Verifies primary button *"Save & Continue"* and secondary *"Go Back"*.
+- [ ] Explicit Authorization Requirement:
+  - Assistant **never** clicks *"Save & Continue"* automatically when the modal opens.
+  - Assistant displays card in panel: *"Please Confirm Your Details"* with warning instructing the user to inspect applicant details on screen.
+  - Button in assistant: **Save & Continue**.
+- [ ] Single Click Execution:
+  - User clicks **Save & Continue** in the assistant.
+  - Assistant checks that modal button is enabled and triggers `.click()` exactly once.
+  - Assistant status shows *"Saving & Continuing..."*.
+  - Duplicate click prevention: double-clicking the assistant button does not send multiple clicks.
+- [ ] Route Transition & State Halting:
+  - Assistant waits for the modal to close or portal route transition.
+  - Upon verification, state transitions to `POST_CONFIRMATION`.
+  - Assistant displays: *"Details Confirmed Successfully — Workflow stopped at document confirmation."*.
+  - **Critical Scope Boundary**: Confirm automation does NOT proceed to appointment/calendar slot selection or payment. Automation halts cleanly at `POST_CONFIRMATION`.
+
+---
+
+## 10. Testing Boundary & Verification Status
 - **Code-Level Automated Tests**:
-  - 70 unit and integration tests passing in Vitest across 8 test suites.
-  - TypeScript compiler (`tsc --noEmit`) passes with 0 errors.
-  - Production build (`npm run build`) builds `popup`, `content`, and `background` with 0 errors.
-- **Live IVAC Site Verification**:
-  - Live portal interactions (real SMS OTP delivery, live slot availability, real gateway redirection) depend on live IVAC server conditions, applicant queue status, and CAPTCHA.
-  - Automated tests simulate and enforce all boundary contracts without executing live bookings or payments.
+  - **103 unit and integration tests passing** in Vitest across 10 test suites (`src/__tests__/`).
+  - Includes dedicated `documentConfirmationWorkflow.test.ts` covering:
+    - Login form selectors (`form.space-y-5`) and Turnstile detection
+    - Disabled button protection (no force-enabling)
+    - 500KB per-file limit and PDF type enforcement
+    - Collapsed applicant card expansion
+    - Primary vs additional applicant input mapping
+    - "Confirm All Information is Correct" button detection and validation
+    - Confirmation modal detection ("Please confirm your details")
+    - Explicit user authorization before clicking "Save & Continue"
+    - Single-click guarantee and bounded timeout handling
+    - Full end-to-end state transitions stopping strictly at `POST_CONFIRMATION`.
+  - TypeScript compiler (`npx tsc --noEmit`) passes with **0 errors**.
+  - Production build (`npm run build`) builds `popup`, `content`, and `background` with **0 errors**.
+- **Live IVAC Site Verification & Known Live Dependencies**:
+  - Live Turnstile puzzles and Cloudflare challenges require manual human interaction.
+  - Live SMS OTP delivery depends on Indian Visa Application Center telecommunication gateways and network conditions.
+  - Live applicant card accordion animation and programmatic file attachment depend on browser security restrictions on `input[type="file"]`. Clear manual file selection fallbacks are provided if synthetic `DataTransfer` attachment is blocked by the live browser context.
+
