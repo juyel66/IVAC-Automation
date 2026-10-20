@@ -77,7 +77,7 @@ describe('WorkflowEngine State Machine & Authentication', () => {
     engine.setDetectedPage('OTP_VERIFICATION');
 
     const session = engine.getSession();
-    expect(session.state).toBe('WAITING_FOR_USER_AUTHENTICATION');
+    expect(session.state).toBe('WAITING_FOR_OTP');
     expect(session.authStatus).toBe('awaiting_otp');
     expect(session.otpState.isRequired).toBe(true);
   });
