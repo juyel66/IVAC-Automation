@@ -25,17 +25,41 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({ session }) =
     switch (stageId) {
       case 'LOGIN':
         if (['IDLE', 'PROFILE_SELECTED'].includes(session.state)) return 'pending';
-        if (session.state === 'LOGIN_READY') return 'active';
+        if (['LOGIN_READY', 'LOGIN_SUBMISSION_PENDING'].includes(session.state)) return 'active';
         return 'completed';
 
       case 'AUTH':
-        if (['IDLE', 'PROFILE_SELECTED', 'LOGIN_READY'].includes(session.state)) return 'pending';
-        if (session.state === 'WAITING_FOR_USER_AUTHENTICATION') return 'active';
+        if (['IDLE', 'PROFILE_SELECTED', 'LOGIN_READY', 'LOGIN_SUBMISSION_PENDING'].includes(session.state)) return 'pending';
+        if ([
+          'WAITING_FOR_CAPTCHA',
+          'OTP_REQUEST_PENDING',
+          'WAITING_FOR_OTP',
+          'OTP_SUBMISSION_PENDING',
+          'AUTHENTICATION_PENDING',
+          'WAITING_FOR_USER_AUTHENTICATION'
+        ].includes(session.state)) return 'active';
         return 'completed';
 
       case 'DOCS':
-        if (['IDLE', 'PROFILE_SELECTED', 'LOGIN_READY', 'WAITING_FOR_USER_AUTHENTICATION'].includes(session.state)) return 'pending';
-        if (session.state === 'DOCUMENT_UPLOAD') return 'active';
+        if ([
+          'IDLE',
+          'PROFILE_SELECTED',
+          'LOGIN_READY',
+          'LOGIN_SUBMISSION_PENDING',
+          'WAITING_FOR_CAPTCHA',
+          'OTP_REQUEST_PENDING',
+          'WAITING_FOR_OTP',
+          'OTP_SUBMISSION_PENDING',
+          'AUTHENTICATION_PENDING',
+          'WAITING_FOR_USER_AUTHENTICATION'
+        ].includes(session.state)) return 'pending';
+        if ([
+          'DOCUMENT_UPLOAD',
+          'DOCUMENT_UPLOAD_VERIFICATION',
+          'WAITING_FOR_DOCUMENT_CONFIRMATION',
+          'DETAILS_CONFIRMATION_MODAL',
+          'SAVE_AND_CONTINUE_PENDING'
+        ].includes(session.state)) return 'active';
         return 'completed';
 
       case 'CENTRE':
@@ -103,6 +127,19 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({ session }) =
           })}
         </div>
       </div>
+
+      {/* Completion Note on Post Confirmation */}
+      {session.state === 'POST_CONFIRMATION' && (
+        <div className="p-3 bg-emerald-950/60 border border-emerald-800/80 rounded-xl text-emerald-200 space-y-1">
+          <div className="flex items-center gap-2 font-semibold text-xs text-emerald-100">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span>Workflow Completed up to Document Confirmation</span>
+          </div>
+          <p className="text-[11px] leading-relaxed text-emerald-200/90">
+            All documents were uploaded and details confirmed via "Save & Continue". In accordance with the current scope, automation pauses at post-confirmation before appointment slot selection.
+          </p>
+        </div>
+      )}
 
       {/* Security Note on Payment */}
       {session.state === 'PAYMENT_HANDOFF' && (
