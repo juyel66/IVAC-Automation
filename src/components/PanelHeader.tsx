@@ -1,5 +1,5 @@
 import React from 'react';
-import { Minus, X, GripHorizontal, ShieldCheck } from 'lucide-react';
+import { Minus, X, GripHorizontal, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { WorkflowState } from '../types/workflow';
 
 interface PanelHeaderProps {
@@ -18,7 +18,11 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
       case 'IDLE':
         return <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-slate-800 text-slate-300 border border-slate-700">Idle</span>;
       case 'LOGIN_READY':
+      case 'LOGIN_SUBMISSION_PENDING':
+      case 'WAITING_FOR_CAPTCHA':
+      case 'OTP_REQUEST_PENDING':
       case 'DOCUMENT_UPLOAD':
+      case 'DOCUMENT_UPLOAD_VERIFICATION':
       case 'CENTRE_SELECTION':
       case 'APPOINTMENT_SELECTION':
         return (
@@ -27,11 +31,54 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
             Running
           </span>
         );
+      case 'WAITING_FOR_OTP':
       case 'WAITING_FOR_USER_AUTHENTICATION':
         return (
           <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-950 text-amber-300 border border-amber-800/60 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
             Awaiting OTP
+          </span>
+        );
+      case 'OTP_SUBMISSION_PENDING':
+        return (
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/60 flex items-center gap-1.5 animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Submitting OTP
+          </span>
+        );
+      case 'AUTHENTICATION_PENDING':
+        return (
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/60 flex items-center gap-1.5 animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Verifying Auth
+          </span>
+        );
+      case 'WAITING_FOR_DOCUMENT_CONFIRMATION':
+        return (
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-950 text-amber-300 border border-amber-800/60 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+            Confirm Ready
+          </span>
+        );
+      case 'DETAILS_CONFIRMATION_MODAL':
+        return (
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-950 text-amber-300 border border-amber-800/60 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+            Review Modal
+          </span>
+        );
+      case 'SAVE_AND_CONTINUE_PENDING':
+        return (
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/60 flex items-center gap-1.5 animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Saving Details
+          </span>
+        );
+      case 'POST_CONFIRMATION':
+        return (
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/60 flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            Confirmed
           </span>
         );
       case 'PAUSED':
