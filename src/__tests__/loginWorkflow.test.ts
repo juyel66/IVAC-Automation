@@ -228,6 +228,80 @@ describe('Login to Document Upload Workflow Verification', () => {
       expect(res.success).toBe(false);
       expect(res.message).toContain('Could not find the mobile number input');
     });
+
+    it('reliably identifies and autofills "Your Contact Number" and password on IVAC signin page', () => {
+      window.history.replaceState({}, '', '/signin');
+      document.body.innerHTML = `
+        <div class="bg-card rounded-2xl p-6">
+          <h2>Sign In</h2>
+          <p>Your data is secure with us.</p>
+          <div class="space-y-4">
+            <div>
+              <label>Your Contact Number</label>
+              <input type="text" placeholder="01......" class="w-full" />
+            </div>
+            <div>
+              <label>Password</label>
+              <input type="password" placeholder="Enter your password" class="w-full" />
+            </div>
+            <div id="cf-turnstile">
+              <span class="text-green-600">Success!</span>
+            </div>
+            <button id="sign-in-now-btn" class="bg-orange">
+              <span>Sign In Now</span>
+            </button>
+          </div>
+        </div>
+      `;
+
+      credentialManager.setUnlockedPassword(sampleProfile.id, 'MySecretPass123');
+      const els = loginAdapter.findFormElements();
+      expect(els.mobileInput).not.toBeNull();
+      expect(els.passwordInput).not.toBeNull();
+      expect(els.submitButton).not.toBeNull();
+
+      const fillRes = loginAdapter.fillCredentials('01712345678', 'MySecretPass123');
+      expect(fillRes.success).toBe(true);
+      expect(els.mobileInput!.value).toBe('01712345678');
+      expect(els.passwordInput!.value).toBe('MySecretPass123');
+    });
+
+    it('smoothly retries autofill when inputs mount asynchronously via startLoginAutofillLoop', async () => {
+      vi.useFakeTimers();
+      window.history.replaceState({}, '', '/signin');
+      // Initially empty DOM
+      document.body.innerHTML = `<div id="loading">Loading IVAC portal...</div>`;
+
+      (engine as any).activeProfile = sampleProfile;
+      (engine as any).session.state = 'PROFILE_SELECTED';
+      credentialManager.setUnlockedPassword(sampleProfile.id, 'MySecretPass123');
+
+      // Start autofill loop
+      engine.startLoginAutofillLoop();
+
+      // Verify still waiting
+      expect(engine.getSession().state).toBe('LOGIN_READY');
+
+      // 400ms later, React mounts the form
+      document.body.innerHTML = `
+        <div class="bg-card">
+          <label>Your Contact Number</label>
+          <input type="text" placeholder="01......" id="contact-inp" />
+          <input type="password" placeholder="Enter your password" id="pass-inp" />
+          <button id="submit-btn">Sign In Now</button>
+        </div>
+      `;
+
+      // Advance timers by 250ms
+      vi.advanceTimersByTime(250);
+
+      const contactInp = document.getElementById('contact-inp') as HTMLInputElement;
+      const passInp = document.getElementById('pass-inp') as HTMLInputElement;
+      expect(contactInp.value).toBe('01712345678');
+      expect(passInp.value).toBe('MySecretPass123');
+
+      vi.useRealTimers();
+    });
   });
 
   // 3. Manual CAPTCHA pause and continuation
