@@ -32,8 +32,11 @@ interface DashboardProps {
   onPauseWorkflow: () => void;
   onResumeWorkflow: () => void;
   onStopWorkflow: () => void;
+  onRequestOtp: () => Promise<{ success: boolean; manualRequired?: boolean; message: string }>;
   onVerifyOtp: (otp: string) => Promise<{ success: boolean; message: string }>;
   onUnlockProfile: (masterPin: string) => Promise<{ success: boolean; error?: string }>;
+  onConfirmDocuments?: () => Promise<{ success: boolean; isBlocked?: boolean; message: string }>;
+  onSaveAndContinue?: () => Promise<{ success: boolean; message: string }>;
   onSwitchTab: (tab: 'profiles' | 'documents' | 'workflow' | 'settings') => void;
 }
 
@@ -58,6 +61,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onStopWorkflow,
   onVerifyOtp,
   onUnlockProfile,
+  onConfirmDocuments,
+  onSaveAndContinue,
   onSwitchTab,
 }) => {
   const [masterPin, setMasterPin] = useState('');
@@ -67,6 +72,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [otpInput, setOtpInput] = useState('');
   const [otpLocalError, setOtpLocalError] = useState<string | null>(null);
   const [isSubmittingOtp, setIsSubmittingOtp] = useState(false);
+
+  const [isConfirmingDocuments, setIsConfirmingDocuments] = useState(false);
+  const [confirmDocError, setConfirmDocError] = useState<string | null>(null);
+
+  const [isConfirmingSave, setIsConfirmingSave] = useState(false);
+  const [saveConfirmError, setSaveConfirmError] = useState<string | null>(null);
 
   const primaryDoc = documents.find((d) => d.role === 'primary');
   const additionalDocs = documents.filter((d) => d.role === 'additional');
@@ -78,15 +89,62 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const isRunning = [
     'LOGIN_READY',
+    'WAITING_FOR_CAPTCHA',
+    'LOGIN_SUBMISSION_PENDING',
+    'OTP_REQUEST_PENDING',
+    'WAITING_FOR_OTP',
+    'OTP_SUBMISSION_PENDING',
+    'AUTHENTICATION_PENDING',
     'WAITING_FOR_USER_AUTHENTICATION',
     'DOCUMENT_UPLOAD',
+    'DOCUMENT_UPLOAD_VERIFICATION',
+    'WAITING_FOR_DOCUMENT_CONFIRMATION',
+    'DETAILS_CONFIRMATION_MODAL',
+    'SAVE_AND_CONTINUE_PENDING',
     'CENTRE_SELECTION',
     'APPOINTMENT_SELECTION'
   ].includes(workflowSession.state);
 
   const isPaused = workflowSession.state === 'PAUSED';
-  const isAwaitingOtp = workflowSession.detectedPage === 'OTP_VERIFICATION' || workflowSession.otpState.isRequired;
-  const isAwaitingCaptcha = workflowSession.state === 'WAITING_FOR_USER_AUTHENTICATION' && !isAwaitingOtp;
+  const isAwaitingOtp =
+    workflowSession.state === 'WAITING_FOR_OTP' ||
+    workflowSession.state === 'OTP_SUBMISSION_PENDING' ||
+    workflowSession.otpState.isRequired ||
+    workflowSession.detectedPage === 'OTP_VERIFICATION';
+
+  const isAuthenticating = workflowSession.state === 'AUTHENTICATION_PENDING';
+
+  const handleConfirmDocumentsSubmit = async () => {
+    if (!onConfirmDocuments) return;
+    setConfirmDocError(null);
+    setIsConfirmingDocuments(true);
+    try {
+      const res = await onConfirmDocuments();
+      if (!res.success) {
+        setConfirmDocError(res.message);
+      }
+    } catch (err: any) {
+      setConfirmDocError(err.message || 'Failed to submit document confirmation.');
+    } finally {
+      setIsConfirmingDocuments(false);
+    }
+  };
+
+  const handleSaveAndContinueSubmit = async () => {
+    if (!onSaveAndContinue) return;
+    setSaveConfirmError(null);
+    setIsConfirmingSave(true);
+    try {
+      const res = await onSaveAndContinue();
+      if (!res.success) {
+        setSaveConfirmError(res.message);
+      }
+    } catch (err: any) {
+      setSaveConfirmError(err.message || 'Failed to confirm details.');
+    } finally {
+      setIsConfirmingSave(false);
+    }
+  };
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,17 +200,41 @@ export const Dashboard: React.FC<DashboardProps> = ({
     switch (stageId) {
       case 'LOGIN':
         if (['IDLE', 'PROFILE_SELECTED'].includes(workflowSession.state)) return 'pending';
-        if (workflowSession.state === 'LOGIN_READY') return 'active';
+        if (['LOGIN_READY', 'LOGIN_SUBMISSION_PENDING'].includes(workflowSession.state)) return 'active';
         return 'completed';
 
       case 'AUTH':
-        if (['IDLE', 'PROFILE_SELECTED', 'LOGIN_READY'].includes(workflowSession.state)) return 'pending';
-        if (workflowSession.state === 'WAITING_FOR_USER_AUTHENTICATION') return 'active';
+        if (['IDLE', 'PROFILE_SELECTED', 'LOGIN_READY', 'LOGIN_SUBMISSION_PENDING'].includes(workflowSession.state)) return 'pending';
+        if ([
+          'WAITING_FOR_CAPTCHA',
+          'OTP_REQUEST_PENDING',
+          'WAITING_FOR_OTP',
+          'OTP_SUBMISSION_PENDING',
+          'AUTHENTICATION_PENDING',
+          'WAITING_FOR_USER_AUTHENTICATION'
+        ].includes(workflowSession.state)) return 'active';
         return 'completed';
 
       case 'DOCS':
-        if (['IDLE', 'PROFILE_SELECTED', 'LOGIN_READY', 'WAITING_FOR_USER_AUTHENTICATION'].includes(workflowSession.state)) return 'pending';
-        if (workflowSession.state === 'DOCUMENT_UPLOAD') return 'active';
+        if ([
+          'IDLE',
+          'PROFILE_SELECTED',
+          'LOGIN_READY',
+          'LOGIN_SUBMISSION_PENDING',
+          'WAITING_FOR_CAPTCHA',
+          'OTP_REQUEST_PENDING',
+          'WAITING_FOR_OTP',
+          'OTP_SUBMISSION_PENDING',
+          'AUTHENTICATION_PENDING',
+          'WAITING_FOR_USER_AUTHENTICATION'
+        ].includes(workflowSession.state)) return 'pending';
+        if ([
+          'DOCUMENT_UPLOAD',
+          'DOCUMENT_UPLOAD_VERIFICATION',
+          'WAITING_FOR_DOCUMENT_CONFIRMATION',
+          'DETAILS_CONFIRMATION_MODAL',
+          'SAVE_AND_CONTINUE_PENDING'
+        ].includes(workflowSession.state)) return 'active';
         return 'completed';
 
       case 'CENTRE':
@@ -182,10 +264,32 @@ export const Dashboard: React.FC<DashboardProps> = ({
         return 'Ready to start';
       case 'LOGIN_READY':
         return '1/6: Filling Login Form';
+      case 'LOGIN_SUBMISSION_PENDING':
+        return '1/6: Submitting Login Form';
+      case 'WAITING_FOR_CAPTCHA':
+        return '1/6: Submitting Login Form';
+      case 'OTP_REQUEST_PENDING':
+        return '2/6: Requesting OTP...';
+      case 'WAITING_FOR_OTP':
+        return '2/6: Enter SMS OTP';
+      case 'OTP_SUBMISSION_PENDING':
+        return '2/6: Submitting OTP...';
+      case 'AUTHENTICATION_PENDING':
+        return '2/6: Verifying Auth...';
       case 'WAITING_FOR_USER_AUTHENTICATION':
-        return isAwaitingOtp ? '2/6: Enter SMS OTP' : '2/6: Solve CAPTCHA on page';
+        return isAwaitingOtp ? '2/6: Enter SMS OTP' : '2/6: Verifying Auth...';
       case 'DOCUMENT_UPLOAD':
         return '3/6: Uploading Documents';
+      case 'DOCUMENT_UPLOAD_VERIFICATION':
+        return '3/6: Verifying Uploads';
+      case 'WAITING_FOR_DOCUMENT_CONFIRMATION':
+        return '3/6: Ready to Confirm';
+      case 'DETAILS_CONFIRMATION_MODAL':
+        return '3/6: Modal Details Review';
+      case 'SAVE_AND_CONTINUE_PENDING':
+        return '3/6: Saving Details...';
+      case 'POST_CONFIRMATION':
+        return 'Documents Confirmed';
       case 'CENTRE_SELECTION':
         return '4/6: Selecting Centre';
       case 'APPOINTMENT_SELECTION':
@@ -395,7 +499,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         )}
       </div>
 
-      {/* 3. CONTEXTUAL OTP CARD (Shown ONLY when OTP screen is detected) */}
+      {/* 4. CONTEXTUAL OTP CARD (Shown ONLY when OTP screen is detected or required) */}
       {isAwaitingOtp && (
         <div className="p-3 bg-emerald-950/50 border-2 border-emerald-500/80 rounded-xl space-y-2 shadow-floating animate-in fade-in duration-200">
           <div className="flex items-center justify-between">
@@ -417,8 +521,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 maxLength={8}
                 value={otpInput}
                 onChange={(e) => {
-                  setOtpInput(e.target.value.replace(/\D/g, ''));
+                  const val = e.target.value.replace(/\D/g, '');
+                  setOtpInput(val);
                   setOtpLocalError(null);
+                  if (val.length === 6 && !isSubmittingOtp && workflowSession.state !== 'OTP_SUBMISSION_PENDING') {
+                    setTimeout(() => {
+                      onVerifyOtp(val);
+                    }, 50);
+                  }
                 }}
                 placeholder="4-6 digit code"
                 autoFocus
@@ -426,10 +536,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
               />
               <button
                 type="submit"
-                disabled={isSubmittingOtp || !otpInput.trim()}
+                disabled={
+                  isSubmittingOtp ||
+                  workflowSession.state === 'OTP_SUBMISSION_PENDING' ||
+                  !otpInput.trim()
+                }
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-semibold rounded-lg transition-all"
               >
-                {isSubmittingOtp ? (
+                {isSubmittingOtp || workflowSession.state === 'OTP_SUBMISSION_PENDING' ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     <span>Verifying...</span>
@@ -453,17 +567,132 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* 4. CONTEXTUAL CAPTCHA ALERT (Shown ONLY when waiting for CAPTCHA) */}
-      {isAwaitingCaptcha && (
-        <div className="p-2.5 bg-amber-950/60 border border-amber-600/80 rounded-xl flex items-center gap-2 text-amber-200">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+      {/* 5. AUTHENTICATION PENDING NOTIFICATION */}
+      {isAuthenticating && (
+        <div className="p-2.5 bg-emerald-950/60 border border-emerald-600/80 rounded-xl flex items-center gap-2 text-emerald-200 animate-pulse">
+          <Loader2 className="w-4 h-4 text-emerald-400 animate-spin shrink-0" />
           <p className="text-[11px] leading-tight flex-1">
-            Credentials filled. <strong>Solve the CAPTCHA</strong> and click Login on the page.
+            Verifying authentication with IVAC portal...
           </p>
         </div>
       )}
 
-      {/* 5. CONTEXTUAL PAYMENT ALERT (Shown ONLY on Payment) */}
+      {/* 5.1 CONTEXTUAL DOCUMENT CONFIRMATION CARD */}
+      {(workflowSession.state === 'WAITING_FOR_DOCUMENT_CONFIRMATION' ||
+        workflowSession.state === 'DOCUMENT_UPLOAD_VERIFICATION') && (
+        <div className="p-3 bg-emerald-950/40 border border-emerald-500/70 rounded-xl space-y-2.5 shadow-floating animate-in fade-in duration-200">
+          <div className="flex items-start gap-2 text-emerald-200">
+            <FileCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-1">
+              <span className="font-bold text-xs text-emerald-300 block">
+                All Documents Uploaded & Verified
+              </span>
+              <p className="text-[11px] leading-tight text-emerald-200/90">
+                Primary and additional applicant PDFs are attached. Ensure any website verification is satisfied, then confirm information.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleConfirmDocumentsSubmit}
+            disabled={isConfirmingDocuments}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold rounded-lg shadow-sm transition-all"
+          >
+            {isConfirmingDocuments ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Confirming Information...</span>
+              </>
+            ) : (
+              <>
+                <span>Confirm All Information is Correct</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </>
+            )}
+          </button>
+
+          {(confirmDocError || workflowSession.errorMessage) && (
+            <p className="text-[10px] text-amber-300 flex items-center gap-1 bg-amber-950/60 p-1.5 rounded border border-amber-800/60">
+              <AlertCircle className="w-3 h-3 shrink-0" />
+              <span>{confirmDocError || workflowSession.errorMessage}</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* 5.2 MODAL DETAILS CONFIRMATION CARD */}
+      {(workflowSession.state === 'DETAILS_CONFIRMATION_MODAL' ||
+        workflowSession.state === 'SAVE_AND_CONTINUE_PENDING') && (
+        <div className="p-3 bg-amber-950/40 border-2 border-amber-500 rounded-xl space-y-2.5 shadow-floating animate-in fade-in duration-200">
+          <div className="flex items-start gap-2 text-amber-200">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-1">
+              <span className="font-bold text-xs text-amber-300 block">
+                {workflowSession.confirmationDetails?.heading || 'Please Confirm Your Details'}
+              </span>
+              <p className="text-[11px] leading-tight text-amber-200/90">
+                {workflowSession.confirmationDetails?.description ||
+                  'Make sure all the information is correct before saving and continuing.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="p-2 bg-slate-950/60 rounded border border-amber-800/50 text-[10px] text-slate-300 space-y-1">
+            <p className="text-amber-200 font-medium">Explicit Authorization Required:</p>
+            <p>
+              Please inspect the portal modal on your screen. The assistant will not click until you explicitly confirm.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveAndContinueSubmit}
+            disabled={isConfirmingSave || workflowSession.state === 'SAVE_AND_CONTINUE_PENDING'}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-[#f25822] hover:bg-[#ff6832] disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold rounded-lg shadow-md transition-all text-xs"
+          >
+            {isConfirmingSave || workflowSession.state === 'SAVE_AND_CONTINUE_PENDING' ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Saving & Continuing...</span>
+              </>
+            ) : (
+              <>
+                <span>Save & Continue</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </>
+            )}
+          </button>
+
+          {(saveConfirmError || workflowSession.errorMessage) && (
+            <p className="text-[10px] text-rose-300 flex items-center gap-1 bg-rose-950/60 p-1.5 rounded border border-rose-800/60">
+              <AlertCircle className="w-3 h-3 shrink-0" />
+              <span>{saveConfirmError || workflowSession.errorMessage}</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* 5.3 POST-CONFIRMATION COMPLETED CARD */}
+      {workflowSession.state === 'POST_CONFIRMATION' && (
+        <div className="p-3 bg-emerald-950/50 border border-emerald-500 rounded-xl space-y-2 shadow-floating animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 text-emerald-200">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-bold text-xs text-emerald-300">
+              Details Confirmed Successfully
+            </span>
+          </div>
+          <p className="text-[11px] leading-tight text-emerald-200/90">
+            Document upload and applicant details have been verified and confirmed with the IVAC portal.
+          </p>
+          <div className="pt-1 border-t border-emerald-800/60 flex items-center justify-between text-[10px] text-emerald-400">
+            <span>Workflow stopped at document confirmation.</span>
+            <span className="font-semibold px-2 py-0.5 rounded bg-emerald-900/60">Done</span>
+          </div>
+        </div>
+      )}
+
+      {/* 6. CONTEXTUAL PAYMENT ALERT (Shown ONLY on Payment) */}
       {workflowSession.state === 'PAYMENT_HANDOFF' && (
         <div className="p-2.5 bg-blue-950/60 border border-blue-600/80 rounded-xl flex items-center gap-2 text-blue-200">
           <ShieldAlert className="w-4 h-4 text-blue-400 shrink-0" />
@@ -473,7 +702,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* 6. PRIMARY WORKFLOW ACTION BUTTON & LIVE STATUS */}
+      {/* 7. PRIMARY WORKFLOW ACTION BUTTON & LIVE STATUS */}
       <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2">
         <div className="flex items-center gap-2">
           {!isRunning && !isPaused ? (
