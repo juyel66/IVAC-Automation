@@ -22,6 +22,7 @@ import { ExtensionSettings, settingsRepository } from '../storage/settingsReposi
 import { profileRepository } from '../storage/profileRepository';
 import { documentRepository } from '../storage/documentRepository';
 import { workflowEngine } from '../features/workflow/workflowEngine';
+import { loginAdapter } from '../content/adapters/loginAdapter';
 import { encryptPassword } from '../utils/crypto';
 import { credentialManager } from '../features/security/credentialManager';
 
@@ -66,6 +67,30 @@ export const FloatingPanel: React.FC = () => {
       } else if (allProfiles.length > 0) {
         setSelectedProfileId(allProfiles[0].id);
         await profileRepository.setSelectedProfileId(allProfiles[0].id);
+      }
+
+      // Automatically dismiss any notice/advisory modals on page load
+      loginAdapter.dismissNoticePopups();
+
+      // Check if auto-start was pending across page navigation
+      try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          const autoStartId = window.sessionStorage.getItem('ivac_auto_start_profile');
+          const autoStartTs = parseInt(window.sessionStorage.getItem('ivac_auto_start_ts') || '0', 10);
+          if (autoStartId && Date.now() - autoStartTs < 60000) {
+            window.sessionStorage.removeItem('ivac_auto_start_profile');
+            window.sessionStorage.removeItem('ivac_auto_start_ts');
+            const targetProf = allProfiles.find((p) => p.id === autoStartId);
+            if (targetProf && credentialManager.isProfileUnlocked(targetProf.id)) {
+              setSelectedProfileId(targetProf.id);
+              setTimeout(() => {
+                workflowEngine.start(targetProf);
+              }, 400);
+            }
+          }
+        }
+      } catch {
+        // ignore
       }
     }
 
@@ -176,6 +201,21 @@ export const FloatingPanel: React.FC = () => {
   // Handle OTP Verification submission from assistant
   const handleVerifyOtp = async (otp: string) => {
     return await workflowEngine.submitOtpVerification(otp);
+  };
+
+  // Handle Continue / Request OTP after CAPTCHA
+  const handleRequestOtp = async () => {
+    return await workflowEngine.requestOtpAfterCaptcha();
+  };
+
+  // Handle "Confirm All Information is Correct"
+  const handleConfirmDocuments = async () => {
+    return await workflowEngine.confirmDocumentInformation();
+  };
+
+  // Handle "Save & Continue"
+  const handleSaveAndContinue = async () => {
+    return await workflowEngine.saveAndContinueConfirmation();
   };
 
   // Handle Profile Delete
@@ -435,8 +475,11 @@ export const FloatingPanel: React.FC = () => {
             onPauseWorkflow={() => workflowEngine.pause()}
             onResumeWorkflow={() => workflowEngine.resume()}
             onStopWorkflow={() => workflowEngine.stop()}
+            onRequestOtp={handleRequestOtp}
             onVerifyOtp={handleVerifyOtp}
             onUnlockProfile={handleUnlockProfile}
+            onConfirmDocuments={handleConfirmDocuments}
+            onSaveAndContinue={handleSaveAndContinue}
             onSwitchTab={(tab) => setActiveTab(tab)}
           />
         )}
