@@ -2,8 +2,19 @@ export type WorkflowState =
   | 'IDLE'
   | 'PROFILE_SELECTED'
   | 'LOGIN_READY'
+  | 'WAITING_FOR_CAPTCHA'
+  | 'LOGIN_SUBMISSION_PENDING'
+  | 'OTP_REQUEST_PENDING'
+  | 'WAITING_FOR_OTP'
+  | 'OTP_SUBMISSION_PENDING'
+  | 'AUTHENTICATION_PENDING'
   | 'WAITING_FOR_USER_AUTHENTICATION'
   | 'DOCUMENT_UPLOAD'
+  | 'DOCUMENT_UPLOAD_VERIFICATION'
+  | 'WAITING_FOR_DOCUMENT_CONFIRMATION'
+  | 'DETAILS_CONFIRMATION_MODAL'
+  | 'SAVE_AND_CONTINUE_PENDING'
+  | 'POST_CONFIRMATION'
   | 'CENTRE_SELECTION'
   | 'APPOINTMENT_SELECTION'
   | 'PAYMENT_HANDOFF'
@@ -25,8 +36,11 @@ export type IvacPageType =
 export type AuthSubStatus =
   | 'idle'
   | 'awaiting_captcha'
+  | 'login_submission_pending'
+  | 'otp_request_pending'
   | 'awaiting_otp'
   | 'submitting_otp'
+  | 'authentication_pending'
   | 'authenticated'
   | 'auth_failed';
 
@@ -35,6 +49,21 @@ export interface OtpSessionState {
   isSubmitting: boolean;
   errorMessage?: string;
   lastSubmittedOtp?: string;
+}
+
+export interface CaptchaSessionState {
+  isRequired: boolean;
+  canVerifyAutomatically: boolean;
+  isSolved: boolean;
+  manualSubmissionRequired: boolean;
+  message?: string;
+}
+
+export interface DocumentConfirmationDetails {
+  heading?: string;
+  description?: string;
+  isModalVisible: boolean;
+  canConfirm: boolean;
 }
 
 export interface WorkflowStepInfo {
@@ -57,6 +86,8 @@ export interface WorkflowSession {
   isPaused: boolean;
   authStatus: AuthSubStatus;
   otpState: OtpSessionState;
+  captchaState?: CaptchaSessionState;
+  confirmationDetails?: DocumentConfirmationDetails;
   logs: WorkflowLogEntry[];
 }
 
