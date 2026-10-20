@@ -59,6 +59,8 @@ describe('Credential Security & Unlock Workflow Tests', () => {
     expect(credentialManager.getUnlockedPassword(profileId)).toBeNull();
   });
 
+     
+
   it('fails decryption when an invalid Master PIN is provided', async () => {
     const profileId = 'prof_wrong_pin';
     const encrypted = await encryptPassword(plainPassword, masterPin);
