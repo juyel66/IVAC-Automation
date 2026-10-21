@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Save, X, AlertTriangle, Eye, EyeOff, KeyRound, Lock } from 'lucide-react';
-import { IvacProfile, ProfileFormData, SUPPORTED_IVAC_CENTRES } from '../types/profile';
+import { IvacProfile, ProfileFormData, SUPPORTED_IVAC_CENTRES, OFFICIAL_IVAC_CENTRES } from '../types/profile';
 import { validateProfileForm } from '../utils/validation';
 
 interface ProfileFormProps {
@@ -22,7 +22,7 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
     displayName: initialProfile?.displayName || '',
     applicantName: initialProfile?.applicantName || '',
     mobileNumber: initialProfile?.mobileNumber || '',
-    preferredCentre: initialProfile?.preferredCentre || 'Dhaka',
+    preferredCentre: initialProfile?.preferredCentre || 'IVAC, Dhaka (JFP)',
     password: '',
     masterPin: '',
     hasExistingPassword
@@ -229,11 +229,15 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({
           onChange={(e) => handleChange('preferredCentre', e.target.value)}
           className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500 transition-colors"
         >
-          {SUPPORTED_IVAC_CENTRES.map((centre) => (
+          {OFFICIAL_IVAC_CENTRES.map((centre) => (
             <option key={centre} value={centre}>
               {centre}
             </option>
           ))}
+          {/* Support legacy profile value if not in official list */}
+          {!OFFICIAL_IVAC_CENTRES.includes(formData.preferredCentre as any) && (
+            <option value={formData.preferredCentre}>{formData.preferredCentre}</option>
+          )}
         </select>
         {errors.preferredCentre && (
           <p className="mt-1 text-[11px] text-rose-400">{errors.preferredCentre}</p>
