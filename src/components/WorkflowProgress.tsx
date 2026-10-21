@@ -4,6 +4,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { WorkflowSession } from '../types/workflow';
+import { getCurrentStageIndex, getStageStatus } from '../utils/workflowProgressHelper';
 
 interface WorkflowProgressProps {
   session: WorkflowSession;
@@ -18,68 +19,20 @@ const STAGES = [
   { id: 'PAYMENT', label: 'Payment Handoff' },
 ];
 
+const STAGE_ORDER: Record<string, number> = {
+  LOGIN: 0,
+  AUTH: 1,
+  DOCS: 2,
+  CENTRE: 3,
+  SLOT: 4,
+  PAYMENT: 5
+};
+
 export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({ session }) => {
-  const getStageStatus = (stageId: string): 'completed' | 'active' | 'pending' | 'error' => {
-    if (session.state === 'ERROR') return 'error';
-
-    switch (stageId) {
-      case 'LOGIN':
-        if (['IDLE', 'PROFILE_SELECTED'].includes(session.state)) return 'pending';
-        if (['LOGIN_READY', 'LOGIN_SUBMISSION_PENDING'].includes(session.state)) return 'active';
-        return 'completed';
-
-      case 'AUTH':
-        if (['IDLE', 'PROFILE_SELECTED', 'LOGIN_READY', 'LOGIN_SUBMISSION_PENDING'].includes(session.state)) return 'pending';
-        if ([
-          'WAITING_FOR_CAPTCHA',
-          'OTP_REQUEST_PENDING',
-          'WAITING_FOR_OTP',
-          'OTP_SUBMISSION_PENDING',
-          'AUTHENTICATION_PENDING',
-          'WAITING_FOR_USER_AUTHENTICATION'
-        ].includes(session.state)) return 'active';
-        return 'completed';
-
-      case 'DOCS':
-        if ([
-          'IDLE',
-          'PROFILE_SELECTED',
-          'LOGIN_READY',
-          'LOGIN_SUBMISSION_PENDING',
-          'WAITING_FOR_CAPTCHA',
-          'OTP_REQUEST_PENDING',
-          'WAITING_FOR_OTP',
-          'OTP_SUBMISSION_PENDING',
-          'AUTHENTICATION_PENDING',
-          'WAITING_FOR_USER_AUTHENTICATION'
-        ].includes(session.state)) return 'pending';
-        if ([
-          'DOCUMENT_UPLOAD',
-          'DOCUMENT_UPLOAD_VERIFICATION',
-          'WAITING_FOR_DOCUMENT_CONFIRMATION',
-          'DETAILS_CONFIRMATION_MODAL',
-          'SAVE_AND_CONTINUE_PENDING'
-        ].includes(session.state)) return 'active';
-        return 'completed';
-
-      case 'CENTRE':
-        if (['CENTRE_SELECTION'].includes(session.state)) return 'active';
-        if (['APPOINTMENT_SELECTION', 'PAYMENT_HANDOFF', 'COMPLETED'].includes(session.state)) return 'completed';
-        return 'pending';
-
-      case 'SLOT':
-        if (['APPOINTMENT_SELECTION'].includes(session.state)) return 'active';
-        if (['PAYMENT_HANDOFF', 'COMPLETED'].includes(session.state)) return 'completed';
-        return 'pending';
-
-      case 'PAYMENT':
-        if (session.state === 'PAYMENT_HANDOFF') return 'active';
-        if (session.state === 'COMPLETED') return 'completed';
-        return 'pending';
-
-      default:
-        return 'pending';
-    }
+  const currentStageIndex = getCurrentStageIndex(session);
+  const getStageStatusForId = (stageId: string, idx: number): 'completed' | 'active' | 'pending' | 'error' => {
+    const stageIndex = STAGE_ORDER[stageId] ?? idx;
+    return getStageStatus(stageIndex, currentStageIndex, session.state);
   };
 
   return (
@@ -91,7 +44,7 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({ session }) =
         </h4>
         <div className="grid grid-cols-6 gap-1">
           {STAGES.map((stg, i) => {
-            const status = getStageStatus(stg.id);
+            const status = getStageStatusForId(stg.id, i);
             return (
               <div key={stg.id} className="flex flex-col items-center text-center">
                 <div
