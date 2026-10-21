@@ -15,12 +15,22 @@ import {
   CheckCircle2,
   ShieldAlert,
   ChevronRight,
-  FileCheck
+  FileCheck,
+  ChevronDown,
+  Check,
+  Globe
 } from 'lucide-react';
-import { IvacProfile } from '../types/profile';
+import { IvacProfile, OFFICIAL_IVAC_CENTRES, getMissionForCentre } from '../types/profile';
 import { DocumentMetadata } from '../types/document';
 import { WorkflowSession, WorkflowState } from '../types/workflow';
 import { credentialManager } from '../features/security/credentialManager';
+import { centreAdapter, matchCentreOption } from '../content/adapters/centreAdapter';
+import {
+  STAGES,
+  getCurrentStageIndex,
+  getStageStatus,
+  getStageSummaryText
+} from '../utils/workflowProgressHelper';
 
 interface DashboardProps {
   selectedProfile: IvacProfile | null;
@@ -37,6 +47,7 @@ interface DashboardProps {
   onUnlockProfile: (masterPin: string) => Promise<{ success: boolean; error?: string }>;
   onConfirmDocuments?: () => Promise<{ success: boolean; isBlocked?: boolean; message: string }>;
   onSaveAndContinue?: () => Promise<{ success: boolean; message: string }>;
+  onUpdatePreferredCentre?: (centre: string) => Promise<void>;
   onSwitchTab: (tab: 'profiles' | 'documents' | 'workflow' | 'settings') => void;
 }
 
@@ -63,6 +74,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onUnlockProfile,
   onConfirmDocuments,
   onSaveAndContinue,
+  onUpdatePreferredCentre,
   onSwitchTab,
 }) => {
   const [masterPin, setMasterPin] = useState('');
@@ -79,6 +91,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [isConfirmingSave, setIsConfirmingSave] = useState(false);
   const [saveConfirmError, setSaveConfirmError] = useState<string | null>(null);
 
+  const [isCentreDropdownOpen, setIsCentreDropdownOpen] = useState(false);
+  const [sessionFeedback, setSessionFeedback] = useState<{ message: string; isError?: boolean } | null>(null);
+
   const primaryDoc = documents.find((d) => d.role === 'primary');
   const additionalDocs = documents.filter((d) => d.role === 'additional');
   const hasRequiredDocs = !!primaryDoc;
@@ -86,6 +101,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const isUnlocked = selectedProfile ? credentialManager.isProfileUnlocked(selectedProfile.id) : false;
   const hasEncryptedCreds = !!(selectedProfile?.encryptedPassword);
   const isProfileReady = !!selectedProfile && hasRequiredDocs && isUnlocked;
+
+  const currentMission = selectedProfile ? getMissionForCentre(selectedProfile.preferredCentre) : 'Dhaka';
+
+  const handleCentreChange = async (centre: string) => {
+    setIsCentreDropdownOpen(false);
+    if (onUpdatePreferredCentre) {
+      await onUpdatePreferredCentre(centre);
+    }
+    setSessionFeedback({ message: `Auto-fill IVAC Center set to: "${centre}"` });
+    setTimeout(() => setSessionFeedback(null), 4000);
+  };
+
+  const handleLoadSessionCentres = () => {
+    const sessionData = centreAdapter.detectSessionCentres();
+    if (sessionData.centres.length > 0) {
+      const detected = sessionData.centres[0];
+      handleCentreChange(detected);
+      setSessionFeedback({ message: `Loaded "${detected}" from active portal session!` });
+    } else if (sessionData.mission) {
+      const match = OFFICIAL_IVAC_CENTRES.find((c) => matchCentreOption(c, sessionData.mission!));
+      if (match) {
+        handleCentreChange(match);
+        setSessionFeedback({ message: `Matched "${match}" for mission "${sessionData.mission}"!` });
+      } else {
+        setSessionFeedback({ message: `Mission "${sessionData.mission}" detected on portal.` });
+      }
+    } else {
+      setSessionFeedback({
+        message: 'Portal mission dropdown not detected on current page. Open mission page to load.',
+        isError: true
+      });
+    }
+    setTimeout(() => setSessionFeedback(null), 5000);
+  };
 
   const isRunning = [
     'LOGIN_READY',
@@ -194,120 +243,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
   };
 
-  const getStageStatus = (stageId: string): 'completed' | 'active' | 'pending' | 'error' => {
-    if (workflowSession.state === 'ERROR') return 'error';
-
-    switch (stageId) {
-      case 'LOGIN':
-        if (['IDLE', 'PROFILE_SELECTED'].includes(workflowSession.state)) return 'pending';
-        if (['LOGIN_READY', 'LOGIN_SUBMISSION_PENDING'].includes(workflowSession.state)) return 'active';
-        return 'completed';
-
-      case 'AUTH':
-        if (['IDLE', 'PROFILE_SELECTED', 'LOGIN_READY', 'LOGIN_SUBMISSION_PENDING'].includes(workflowSession.state)) return 'pending';
-        if ([
-          'WAITING_FOR_CAPTCHA',
-          'OTP_REQUEST_PENDING',
-          'WAITING_FOR_OTP',
-          'OTP_SUBMISSION_PENDING',
-          'AUTHENTICATION_PENDING',
-          'WAITING_FOR_USER_AUTHENTICATION'
-        ].includes(workflowSession.state)) return 'active';
-        return 'completed';
-
-      case 'DOCS':
-        if ([
-          'IDLE',
-          'PROFILE_SELECTED',
-          'LOGIN_READY',
-          'LOGIN_SUBMISSION_PENDING',
-          'WAITING_FOR_CAPTCHA',
-          'OTP_REQUEST_PENDING',
-          'WAITING_FOR_OTP',
-          'OTP_SUBMISSION_PENDING',
-          'AUTHENTICATION_PENDING',
-          'WAITING_FOR_USER_AUTHENTICATION'
-        ].includes(workflowSession.state)) return 'pending';
-        if ([
-          'DOCUMENT_UPLOAD',
-          'DOCUMENT_UPLOAD_VERIFICATION',
-          'WAITING_FOR_DOCUMENT_CONFIRMATION',
-          'DETAILS_CONFIRMATION_MODAL',
-          'SAVE_AND_CONTINUE_PENDING'
-        ].includes(workflowSession.state)) return 'active';
-        return 'completed';
-
-      case 'CENTRE':
-        if (['CENTRE_SELECTION'].includes(workflowSession.state)) return 'active';
-        if (['APPOINTMENT_SELECTION', 'PAYMENT_HANDOFF', 'COMPLETED'].includes(workflowSession.state)) return 'completed';
-        return 'pending';
-
-      case 'SLOT':
-        if (['APPOINTMENT_SELECTION'].includes(workflowSession.state)) return 'active';
-        if (['PAYMENT_HANDOFF', 'COMPLETED'].includes(workflowSession.state)) return 'completed';
-        return 'pending';
-
-      case 'PAYMENT':
-        if (workflowSession.state === 'PAYMENT_HANDOFF') return 'active';
-        if (workflowSession.state === 'COMPLETED') return 'completed';
-        return 'pending';
-
-      default:
-        return 'pending';
-    }
-  };
-
-  const getCurrentStageSummary = (state: WorkflowState): string => {
-    switch (state) {
-      case 'IDLE':
-      case 'PROFILE_SELECTED':
-        return 'Ready to start';
-      case 'LOGIN_READY':
-        return '1/6: Filling Login Form';
-      case 'LOGIN_SUBMISSION_PENDING':
-        return '1/6: Submitting Login Form';
-      case 'WAITING_FOR_CAPTCHA':
-        return '1/6: Submitting Login Form';
-      case 'OTP_REQUEST_PENDING':
-        return '2/6: Requesting OTP...';
-      case 'WAITING_FOR_OTP':
-        return '2/6: Enter SMS OTP';
-      case 'OTP_SUBMISSION_PENDING':
-        return '2/6: Submitting OTP...';
-      case 'AUTHENTICATION_PENDING':
-        return '2/6: Verifying Auth...';
-      case 'WAITING_FOR_USER_AUTHENTICATION':
-        return isAwaitingOtp ? '2/6: Enter SMS OTP' : '2/6: Verifying Auth...';
-      case 'DOCUMENT_UPLOAD':
-        return '3/6: Uploading Documents';
-      case 'DOCUMENT_UPLOAD_VERIFICATION':
-        return '3/6: Verifying Uploads';
-      case 'WAITING_FOR_DOCUMENT_CONFIRMATION':
-        return '3/6: Ready to Confirm';
-      case 'DETAILS_CONFIRMATION_MODAL':
-        return '3/6: Modal Details Review';
-      case 'SAVE_AND_CONTINUE_PENDING':
-        return '3/6: Saving Details...';
-      case 'POST_CONFIRMATION':
-        return 'Documents Confirmed';
-      case 'CENTRE_SELECTION':
-        return '4/6: Selecting Centre';
-      case 'APPOINTMENT_SELECTION':
-        return '5/6: Selecting Slot';
-      case 'PAYMENT_HANDOFF':
-        return '6/6: Payment Handoff (Manual)';
-      case 'PAUSED':
-        return 'Flow Paused';
-      case 'ERROR':
-        return 'Action Required';
-      case 'STOPPED':
-        return 'Stopped';
-      case 'COMPLETED':
-        return 'Finished';
-      default:
-        return state;
-    }
-  };
+  const currentStageIndex = getCurrentStageIndex(workflowSession);
+  const currentStageStatus = (stageIndex: number) =>
+    getStageStatus(stageIndex, currentStageIndex, workflowSession.state);
+  const currentStageSummary = getStageSummaryText(workflowSession, currentStageIndex);
 
   // Missing requirements helper text
   const getDisabledReason = (): string | null => {
@@ -331,14 +270,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
             Booking Progress
           </span>
           <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-800/60">
-            {getCurrentStageSummary(workflowSession.state)}
+            {currentStageSummary}
           </span>
         </div>
 
         {/* 6-Step Compact Horizontal Pipeline */}
         <div className="grid grid-cols-6 gap-1">
           {STAGES.map((stg, i) => {
-            const status = getStageStatus(stg.id);
+            const status = currentStageStatus(i);
+            const isCurrentlyRunning = isRunning && status === 'active';
             return (
               <div
                 key={stg.id}
@@ -346,7 +286,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   status === 'completed'
                     ? 'bg-emerald-950/80 border-emerald-600/70 text-emerald-300'
                     : status === 'active'
-                    ? 'bg-amber-500/20 border-amber-500 text-amber-200 ring-1 ring-amber-400/50 animate-pulse'
+                    ? isCurrentlyRunning
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-200 ring-1 ring-amber-400/50 animate-pulse'
+                      : 'bg-amber-950/40 border-amber-500/80 text-amber-200 ring-1 ring-amber-500/30'
                     : status === 'error'
                     ? 'bg-rose-950/80 border-rose-600 text-rose-300'
                     : 'bg-slate-950/60 border-slate-800/80 text-slate-500'
@@ -498,6 +440,105 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         )}
       </div>
+
+      {/* 2.5 BOOKING: MISSION & IVAC CENTER CARD */}
+      {selectedProfile && (
+        <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              Booking
+            </span>
+            <span className="text-[10px] text-slate-400">Auto-fill on IVAC portal</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {/* Mission Display */}
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                Mission
+              </label>
+              <div className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700/80 rounded-lg text-slate-200 font-medium text-xs flex items-center justify-between">
+                <span>{currentMission}</span>
+                <span className="text-[10px] text-slate-500 font-mono">Jurisdiction</span>
+              </div>
+            </div>
+
+            {/* IVAC Center Dropdown */}
+            <div className="relative">
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                IVAC Center
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsCentreDropdownOpen(!isCentreDropdownOpen)}
+                disabled={isRunning}
+                className="w-full px-2.5 py-1.5 bg-slate-950 border border-emerald-500/80 hover:border-emerald-400 rounded-lg text-slate-100 font-medium text-xs flex items-center justify-between transition-colors focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+              >
+                <span className="truncate">{selectedProfile.preferredCentre}</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-emerald-400 transition-transform ${
+                    isCentreDropdownOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {/* Custom Dropdown Menu matching portal screenshot */}
+              {isCentreDropdownOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setIsCentreDropdownOpen(false)}
+                  />
+                  <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 max-h-60 overflow-y-auto py-1 text-slate-900 text-xs">
+                    {OFFICIAL_IVAC_CENTRES.map((centre) => {
+                      const isSelected =
+                        centre === selectedProfile.preferredCentre ||
+                        matchCentreOption(centre, selectedProfile.preferredCentre);
+                      return (
+                        <button
+                          key={centre}
+                          type="button"
+                          onClick={() => handleCentreChange(centre)}
+                          className={`w-full px-3 py-2 text-left transition-colors flex items-center justify-between ${
+                            isSelected
+                              ? 'bg-emerald-50 text-emerald-900 font-semibold'
+                              : 'hover:bg-slate-100 text-slate-800'
+                          }`}
+                        >
+                          <span>{centre}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Load Centers from Session Button */}
+          <button
+            type="button"
+            onClick={handleLoadSessionCentres}
+            disabled={isRunning}
+            className="w-full py-1.5 bg-slate-950 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 rounded-lg text-slate-300 hover:text-white font-bold text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+          >
+            <Globe className="w-3 h-3 text-emerald-400" />
+            <span>Load Centers From Session</span>
+          </button>
+
+          {sessionFeedback && (
+            <p
+              className={`text-[10px] text-center ${
+                sessionFeedback.isError ? 'text-rose-400' : 'text-emerald-400'
+              }`}
+            >
+              {sessionFeedback.message}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* 4. CONTEXTUAL OTP CARD (Shown ONLY when OTP screen is detected or required) */}
       {isAwaitingOtp && (
