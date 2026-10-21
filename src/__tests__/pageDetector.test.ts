@@ -168,4 +168,48 @@ describe('IvacPageDetector & Payment Page Detection Regression Tests', () => {
     const result = detector.detect();
     expect(result.pageType).toBe('APPOINTMENT_CALENDAR');
   });
+
+  it('REGRESSION TEST: Does NOT classify the portal landing page (e.g. appointment.ivacbd.com with "Take Your Appointment" or "Sign In") as APPOINTMENT_CALENDAR', () => {
+    window.history.replaceState({}, '', '/');
+    document.body.innerHTML = `
+      <div class="landing-page">
+        <h1>Welcome to Indian Visa Application Center</h1>
+        <p>Book your visa appointment using secure gateway and trusted platform</p>
+        <button id="take-appointment-btn">Take Your Appointment</button>
+        <button id="signin-btn">Sign In</button>
+      </div>
+    `;
+
+    const result = detector.detect();
+    expect(result.pageType).not.toBe('APPOINTMENT_CALENDAR');
+  });
+
+  it('REGRESSION TEST: Does NOT classify bare "/appointment" without date grid or slot route as APPOINTMENT_CALENDAR', () => {
+    window.history.replaceState({}, '', '/appointment');
+    document.body.innerHTML = `
+      <div>
+        <button>Sign In</button>
+        <p>Welcome to Indian Visa Application Center</p>
+      </div>
+    `;
+
+    const result = detector.detect();
+    expect(result.pageType).not.toBe('APPOINTMENT_CALENDAR');
+  });
+
+  it('detects modern IVAC appointment slot page (/appointment/time-slot) as APPOINTMENT_CALENDAR', () => {
+    window.history.replaceState({}, '', '/appointment/time-slot');
+    document.body.innerHTML = `
+      <div>
+        <p>Select an Appointment Date</p>
+        <div class="grid-cols-7">
+          <button type="button">22</button>
+        </div>
+        <button>Continue Booking</button>
+      </div>
+    `;
+
+    const result = detector.detect();
+    expect(result.pageType).toBe('APPOINTMENT_CALENDAR');
+  });
 });
