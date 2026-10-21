@@ -77,9 +77,7 @@ export const FloatingPanel: React.FC = () => {
         if (typeof window !== 'undefined' && window.sessionStorage) {
           const autoStartId = window.sessionStorage.getItem('ivac_auto_start_profile');
           const autoStartTs = parseInt(window.sessionStorage.getItem('ivac_auto_start_ts') || '0', 10);
-          if (autoStartId && Date.now() - autoStartTs < 60000) {
-            window.sessionStorage.removeItem('ivac_auto_start_profile');
-            window.sessionStorage.removeItem('ivac_auto_start_ts');
+          if (autoStartId && Date.now() - autoStartTs < 180000) {
             const targetProf = allProfiles.find((p) => p.id === autoStartId);
             if (targetProf && credentialManager.isProfileUnlocked(targetProf.id)) {
               setSelectedProfileId(targetProf.id);
@@ -252,6 +250,26 @@ export const FloatingPanel: React.FC = () => {
       await profileRepository.saveProfile(updated);
       const allProfs = await profileRepository.getAllProfiles();
       setProfiles(allProfs);
+    }
+  };
+
+  const handleUpdatePreferredCentre = async (centre: string) => {
+    if (!selectedProfileId) return;
+    const targetProfile = profiles.find((p) => p.id === selectedProfileId);
+    if (!targetProfile) return;
+
+    const updated: IvacProfile = {
+      ...targetProfile,
+      preferredCentre: centre,
+      updatedAt: Date.now()
+    };
+
+    await profileRepository.saveProfile(updated);
+    const allProfs = await profileRepository.getAllProfiles();
+    setProfiles(allProfs);
+
+    if (workflowEngine.getActiveProfile()?.id === updated.id) {
+      workflowEngine.setActiveProfile(updated);
     }
   };
 
@@ -480,6 +498,7 @@ export const FloatingPanel: React.FC = () => {
             onUnlockProfile={handleUnlockProfile}
             onConfirmDocuments={handleConfirmDocuments}
             onSaveAndContinue={handleSaveAndContinue}
+            onUpdatePreferredCentre={handleUpdatePreferredCentre}
             onSwitchTab={(tab) => setActiveTab(tab)}
           />
         )}
