@@ -9,6 +9,8 @@ import { documentRepository } from '../../storage/documentRepository';
 import { credentialManager } from '../security/credentialManager';
 import { loginAdapter } from '../../content/adapters/loginAdapter';
 import { documentAdapter } from '../../content/adapters/documentAdapter';
+import { centreAdapter } from '../../content/adapters/centreAdapter';
+import { appointmentAdapter } from '../../content/adapters/appointmentAdapter';
 import { PaymentAdapter } from '../../content/adapters/paymentAdapter';
 import { validateOtpFormat } from '../../utils/validation';
 import { ivacPageDetector } from '../../content/pageDetector';
@@ -126,6 +128,16 @@ export class WorkflowEngine {
     }
   }
 
+  public getActiveProfile(): IvacProfile | null {
+    return this.activeProfile;
+  }
+
+  public setActiveProfile(profile: IvacProfile): void {
+    this.activeProfile = profile;
+    this.session.activeProfileId = profile.id;
+    this.notify();
+  }
+
   /**
    * Primary entry point when user selects a saved profile and clicks "Start"
    */
@@ -184,35 +196,54 @@ export class WorkflowEngine {
     this.addLog('info', `Starting assistant workflow for profile: "${profile.displayName}"`);
 
     // 3. Inspect current page on the supported IVAC website
-    const detected = this.session.detectedPage;
+    const liveDetected = ivacPageDetector.detect().pageType;
+    const pathname = typeof window !== 'undefined' ? (window.location.pathname || '').toLowerCase() : '';
+    const detected = liveDetected !== 'UNKNOWN' ? liveDetected : this.session.detectedPage;
 
-    if (detected === 'LOGIN' || loginAdapter.isOnLoginPage()) {
-      await this.handlePageTransition('LOGIN');
-    } else if (detected === 'OTP_VERIFICATION') {
-      await this.handlePageTransition('OTP_VERIFICATION');
-    } else if (detected === 'DOCUMENT_UPLOAD') {
-      await this.handlePageTransition('DOCUMENT_UPLOAD');
-    } else {
-      // Save auto-start marker so workflow resumes seamlessly upon navigating to /signin
-      try {
-        if (typeof window !== 'undefined' && window.sessionStorage) {
-          window.sessionStorage.setItem('ivac_auto_start_profile', profile.id);
-          window.sessionStorage.setItem('ivac_auto_start_ts', Date.now().toString());
-        }
-      } catch {
-        // ignore
-      }
-
-      // Not on login page: navigate directly or via verified portal link
-      const navRes = loginAdapter.navigateToLoginPage();
-      if (navRes.navigated) {
-        this.addLog('info', navRes.message);
-      } else if (!navRes.success) {
-        this.addLog('warning', navRes.message);
-        this.setState('LOGIN_READY');
+    if (detected === 'LOGIN' || loginAdapter.isOnLoginPage() || pathname.includes('/signin') || pathname.includes('/login')) {
+      this.handlePageTransition('LOGIN');
+    } else if (detected === 'OTP_VERIFICATION' || pathname.includes('/otp') || pathname.includes('/verify')) {
+      this.handlePageTransition('OTP_VERIFICATION');
+    } else if (detected === 'DOCUMENT_UPLOAD' || pathname.includes('/file-upload') || pathname.includes('/document') || pathname.includes('/upload')) {
+      this.handlePageTransition('DOCUMENT_UPLOAD');
+    } else if (detected === 'CENTRE_SELECTION' || pathname.includes('/mission') || pathname.includes('/centre') || pathname.includes('/center')) {
+      this.handlePageTransition('CENTRE_SELECTION');
+    } else if (detected === 'APPOINTMENT_CALENDAR' || pathname.includes('/time-slot') || pathname.includes('/slot')) {
+      const isSlotRoute = pathname.includes('/time-slot') || pathname.includes('/slot');
+      const hasSlots = appointmentAdapter.findSelectableSlots().length > 0;
+      if (isSlotRoute || hasSlots) {
+        this.handlePageTransition('APPOINTMENT_CALENDAR');
       } else {
-        await this.handlePageTransition('LOGIN');
+        this.initiateLoginFlow(profile);
       }
+    } else {
+      this.initiateLoginFlow(profile);
+    }
+  }
+
+  /**
+   * Helper to initiate login flow from landing or unauthenticated pages
+   */
+  private async initiateLoginFlow(profile: IvacProfile): Promise<void> {
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem('ivac_auto_start_profile', profile.id);
+        window.sessionStorage.setItem('ivac_auto_start_ts', Date.now().toString());
+      }
+    } catch {
+      // ignore
+    }
+
+    this.setState('LOGIN_READY');
+    this.addLog('info', 'Opening IVAC login page...');
+
+    const navRes = loginAdapter.navigateToLoginPage();
+    if (navRes.navigated) {
+      this.addLog('info', navRes.message);
+    } else if (!navRes.success) {
+      this.addLog('warning', navRes.message);
+    } else {
+      await this.handlePageTransition('LOGIN');
     }
   }
 
@@ -250,6 +281,12 @@ export class WorkflowEngine {
     this.session.otpState = { isRequired: false, isSubmitting: false };
     this.session.authStatus = 'idle';
     this.session.confirmationDetails = undefined;
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem('ivac_auto_start_profile');
+        window.sessionStorage.removeItem('ivac_auto_start_ts');
+      }
+    } catch {}
     this.setState('STOPPED');
     this.addLog('info', 'Workflow was stopped by user.');
   }
@@ -257,6 +294,12 @@ export class WorkflowEngine {
   public reset() {
     this.clearTimers();
     this.isSubmittingLogin = false;
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem('ivac_auto_start_profile');
+        window.sessionStorage.removeItem('ivac_auto_start_ts');
+      }
+    } catch {}
     this.session = {
       state: 'IDLE',
       activeProfileId: null,
@@ -289,7 +332,7 @@ export class WorkflowEngine {
   public async handlePageTransition(page: IvacPageType) {
     if (this.session.isPaused) return;
     if (!this.activeProfile) return;
-    if (this.session.state === 'POST_CONFIRMATION') return;
+    if (this.session.state === 'POST_CONFIRMATION' && page !== 'CENTRE_SELECTION' && page !== 'APPOINTMENT_CALENDAR') return;
 
     switch (page) {
       case 'LOGIN': {
@@ -319,7 +362,28 @@ export class WorkflowEngine {
         await this.handleDocumentUploadStage();
         break;
 
+      case 'CENTRE_SELECTION':
+        this.clearTimers();
+        this.session.otpState.isRequired = false;
+        this.session.authStatus = 'authenticated';
+        await this.handleCentreSelectionStage();
+        break;
+
+      case 'APPOINTMENT_CALENDAR':
+        this.clearTimers();
+        this.session.otpState.isRequired = false;
+        this.session.authStatus = 'authenticated';
+        await this.handleAppointmentSlotStage();
+        break;
+
       case 'PAYMENT':
+        this.clearTimers();
+        try {
+          if (typeof window !== 'undefined' && window.sessionStorage) {
+            window.sessionStorage.removeItem('ivac_auto_start_profile');
+            window.sessionStorage.removeItem('ivac_auto_start_ts');
+          }
+        } catch {}
         this.setState('PAYMENT_HANDOFF');
         this.addLog('warning', PaymentAdapter.HANDOFF_MESSAGE);
         break;
@@ -745,17 +809,37 @@ export class WorkflowEngine {
    * After confirmed authentication, detect whether portal automatically opens document-upload page
    * or navigate using a verified visible control.
    */
+  /**
+   * After confirmed authentication, dismisses all popups and proceeds directly to
+   * https://appointment.ivacbd.com/appointment/file-upload
+   */
   public async proceedToDocumentUpload(): Promise<void> {
+    // 1. Dismiss any notice/advisory/intro modals
+    loginAdapter.dismissNoticePopups();
+
+    // 2. Save auto-start marker so workflow resumes seamlessly across pages
+    if (this.activeProfile && typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem('ivac_auto_start_profile', this.activeProfile.id);
+      window.sessionStorage.setItem('ivac_auto_start_ts', Date.now().toString());
+    }
+
     const currentDetected = this.session.detectedPage;
     const detectedFromDom = ivacPageDetector.detect().pageType;
+    const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase() : '';
 
-    if (currentDetected === 'DOCUMENT_UPLOAD' || detectedFromDom === 'DOCUMENT_UPLOAD') {
+    if (
+      pathname.includes('/file-upload') ||
+      pathname.includes('/document') ||
+      pathname.includes('/upload') ||
+      currentDetected === 'DOCUMENT_UPLOAD' ||
+      detectedFromDom === 'DOCUMENT_UPLOAD'
+    ) {
       this.setState('DOCUMENT_UPLOAD');
       await this.handleDocumentUploadStage();
       return;
     }
 
-    // Try visible verified navigation control if portal requires Next/Continue
+    // Try visible verified navigation control (e.g. Next Step button or portal link)
     const navRes = loginAdapter.navigateToDocumentUpload();
     if (navRes.alreadyOnPage) {
       this.setState('DOCUMENT_UPLOAD');
@@ -765,7 +849,7 @@ export class WorkflowEngine {
 
     if (navRes.navigated) {
       this.addLog('info', navRes.message);
-      // Brief bounded wait for route transition to document upload
+      // Wait for navigation transition
       await new Promise((r) => setTimeout(r, 1200));
       const postNavDetected = ivacPageDetector.detect().pageType;
       if (postNavDetected === 'DOCUMENT_UPLOAD') {
@@ -773,10 +857,10 @@ export class WorkflowEngine {
         await this.handleDocumentUploadStage();
       }
     } else {
-      this.addLog(
-        'info',
-        'Authentication verified. Please navigate to the Document Upload page on the website to continue.'
-      );
+      // Direct navigation to file-upload endpoint
+      try {
+        window.location.href = 'https://appointment.ivacbd.com/appointment/file-upload';
+      } catch {}
     }
   }
 
@@ -830,6 +914,7 @@ export class WorkflowEngine {
 
   /**
    * After all documents are uploaded and verified, prepares for document confirmation
+   * and automatically monitors the confirm button to click it when ready
    */
   private transitionToDocumentConfirmation() {
     this.setState('WAITING_FOR_DOCUMENT_CONFIRMATION');
@@ -840,6 +925,69 @@ export class WorkflowEngine {
         ? 'All documents verified. "Confirm All Information is Correct" button is ready.'
         : 'All documents verified. Waiting for portal confirmation button to become enabled...'
     );
+
+    // Automatically monitor confirm button to click it as soon as it is enabled
+    this.autoConfirmDocumentsWhenReady();
+  }
+
+  /**
+   * Automatically monitors the "Confirm All Information is Correct" button until enabled, then clicks it
+   */
+  public autoConfirmDocumentsWhenReady(): void {
+    if (this.autoSubmitTimer) {
+      window.clearInterval(this.autoSubmitTimer);
+      this.autoSubmitTimer = null;
+    }
+
+    setTimeout(() => {
+      let checks = 0;
+      const maxChecks = 120; // 30s
+
+      this.autoSubmitTimer = window.setInterval(async () => {
+        checks++;
+
+        if (this.session.isPaused || this.session.state === 'STOPPED') {
+          if (this.autoSubmitTimer) {
+            window.clearInterval(this.autoSubmitTimer);
+            this.autoSubmitTimer = null;
+          }
+          return;
+        }
+
+        if (
+          this.session.state !== 'WAITING_FOR_DOCUMENT_CONFIRMATION' &&
+          this.session.state !== 'DOCUMENT_UPLOAD_VERIFICATION'
+        ) {
+          if (this.autoSubmitTimer) {
+            window.clearInterval(this.autoSubmitTimer);
+            this.autoSubmitTimer = null;
+          }
+          return;
+        }
+
+        if (documentAdapter.isConfirmAllButtonEnabled()) {
+          if (this.autoSubmitTimer) {
+            window.clearInterval(this.autoSubmitTimer);
+            this.autoSubmitTimer = null;
+          }
+          this.addLog('info', 'Confirmation button enabled! Clicking automatically...');
+          const res = await this.confirmDocumentInformation();
+          if (res.success) {
+            // Once modal is detected, immediately proceed to Save & Continue
+            await this.saveAndContinueConfirmation();
+          }
+          return;
+        }
+
+        if (checks >= maxChecks) {
+          if (this.autoSubmitTimer) {
+            window.clearInterval(this.autoSubmitTimer);
+            this.autoSubmitTimer = null;
+          }
+          this.addLog('warning', '"Confirm All Information is Correct" button remained disabled. Please check Turnstile on page.');
+        }
+      }, 500);
+    }, 800);
   }
 
   /**
@@ -956,6 +1104,21 @@ export class WorkflowEngine {
           this.setState('POST_CONFIRMATION');
           this.addLog('success', 'Applicant details confirmed and saved successfully with IVAC portal.');
           this.notify();
+
+          // Prepare auto-start for mission page
+          if (this.activeProfile && typeof window !== 'undefined' && window.sessionStorage) {
+            window.sessionStorage.setItem('ivac_auto_start_profile', this.activeProfile.id);
+            window.sessionStorage.setItem('ivac_auto_start_ts', Date.now().toString());
+          }
+
+          // Fallback redirect to mission page if portal doesn't automatically route
+          setTimeout(() => {
+            const currentPath = typeof window !== 'undefined' ? window.location.pathname.toLowerCase() : '';
+            if (!currentPath.includes('/mission')) {
+              window.location.href = 'https://appointment.ivacbd.com/appointment/mission';
+            }
+          }, 2000);
+
           resolve({ success: true, message: 'Details confirmed and saved successfully.' });
           return;
         }
@@ -971,6 +1134,155 @@ export class WorkflowEngine {
         }
       }, 500);
     });
+  }
+
+  /**
+   * Handles IVAC centre selection stage on /appointment/mission
+   */
+  public async handleCentreSelectionStage(): Promise<void> {
+    if (!this.activeProfile) return;
+
+    this.setState('CENTRE_SELECTION');
+    const targetCentre = this.activeProfile.preferredCentre;
+    this.addLog('info', `Selecting IVAC center "${targetCentre}"...`);
+
+    let attempts = 0;
+    const maxAttempts = 50; // 10s
+
+    const centreTimer = window.setInterval(async () => {
+      attempts++;
+
+      if (this.session.isPaused || this.session.state === 'STOPPED' || !this.activeProfile) {
+        window.clearInterval(centreTimer);
+        return;
+      }
+
+      const res = centreAdapter.selectPreferredCentre(targetCentre);
+      if (res.success) {
+        window.clearInterval(centreTimer);
+        this.addLog('success', res.message);
+        // Automatically submit mission & IVAC center confirmation
+        await this.autoSubmitCentreSelection();
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        window.clearInterval(centreTimer);
+        this.setState('CENTRE_SELECTION', res.message || 'Could not select IVAC centre. Please select manually on the page.');
+        this.addLog('warning', res.message);
+      }
+    }, 250);
+  }
+
+  /**
+   * Automatically monitors the "Confirm Mission & IVAC Center" button until enabled, then clicks it
+   */
+  public async autoSubmitCentreSelection(): Promise<{ success: boolean; message: string }> {
+    let attempts = 0;
+    const maxAttempts = 40; // 10s
+
+    const submitTimer = window.setInterval(() => {
+      attempts++;
+
+      if (this.session.isPaused || this.session.state === 'STOPPED') {
+        window.clearInterval(submitTimer);
+        return;
+      }
+
+      if (centreAdapter.isConfirmCentreButtonEnabled()) {
+        window.clearInterval(submitTimer);
+        this.addLog('info', 'Clicking "Confirm Mission & IVAC Center"...');
+        const clickRes = centreAdapter.clickConfirmCentreButton();
+        if (clickRes.success) {
+          this.addLog('success', 'Confirmed Mission & IVAC Center! Navigating to appointment slot...');
+          // Prepare auto-start for slot page
+          if (this.activeProfile && typeof window !== 'undefined' && window.sessionStorage) {
+            window.sessionStorage.setItem('ivac_auto_start_profile', this.activeProfile.id);
+            window.sessionStorage.setItem('ivac_auto_start_ts', Date.now().toString());
+          }
+          // Fallback navigation after 3s if route hasn't changed
+          setTimeout(() => {
+            const currentPath = typeof window !== 'undefined' ? window.location.pathname.toLowerCase() : '';
+            if (!currentPath.includes('/slot') && !currentPath.includes('/time-slot')) {
+              window.location.href = 'https://appointment.ivacbd.com/appointment/time-slot';
+            }
+          }, 3000);
+        } else {
+          this.addLog('error', clickRes.message);
+        }
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        window.clearInterval(submitTimer);
+        this.addLog('warning', 'Confirm Mission & IVAC Center button was not enabled. Please verify on the page.');
+      }
+    }, 250);
+
+    return { success: true, message: 'Initiated mission and centre confirmation.' };
+  }
+
+  /**
+   * Handles appointment date and slot selection on /appointment/time-slot
+   */
+  public async handleAppointmentSlotStage(): Promise<void> {
+    this.setState('APPOINTMENT_SELECTION');
+    this.addLog('info', 'Checking available appointment dates and slots on calendar...');
+
+    let attempts = 0;
+    const maxAttempts = 50; // 15s
+
+    const slotTimer = window.setInterval(async () => {
+      attempts++;
+
+      if (this.session.isPaused || this.session.state === 'STOPPED') {
+        window.clearInterval(slotTimer);
+        return;
+      }
+
+      const res = appointmentAdapter.selectFirstAvailableSlot();
+      if (res.success) {
+        window.clearInterval(slotTimer);
+        this.addLog('success', res.message);
+        this.addLog('info', 'Waiting for Turnstile verification to enable "Continue Booking"...');
+        this.autoSubmitAppointmentSlotWhenReady();
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        window.clearInterval(slotTimer);
+        this.addLog('warning', res.message);
+      }
+    }, 300);
+  }
+
+  /**
+   * Automatically monitors the "Continue Booking" button until enabled, then clicks it
+   */
+  public autoSubmitAppointmentSlotWhenReady(): void {
+    let attempts = 0;
+    const maxAttempts = 120; // 30s
+
+    const timer = window.setInterval(() => {
+      attempts++;
+
+      if (this.session.isPaused || this.session.state === 'STOPPED') {
+        window.clearInterval(timer);
+        return;
+      }
+
+      if (appointmentAdapter.isContinueBookingButtonEnabled()) {
+        window.clearInterval(timer);
+        this.addLog('info', 'Clicking "Continue Booking"...');
+        appointmentAdapter.clickContinueBooking();
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        window.clearInterval(timer);
+        this.addLog('warning', 'Continue Booking button remained disabled. Please complete verification on page.');
+      }
+    }, 250);
   }
 }
 
