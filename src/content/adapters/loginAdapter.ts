@@ -449,6 +449,16 @@ export class LoginAdapter {
         container.style.display = 'none';
         container.setAttribute('aria-hidden', 'true');
         dismissed = true;
+      } else if (content.includes('to book your visa appointment')) {
+        const nextStepBtn = Array.from(container.querySelectorAll<HTMLElement>('button')).find(b => 
+          /next step/i.test(b.textContent || '')
+        );
+        if (nextStepBtn) {
+          try {
+            nextStepBtn.click();
+            dismissed = true;
+          } catch {}
+        }
       }
     }
 
@@ -525,12 +535,12 @@ export class LoginAdapter {
           } catch {}
         }
 
-        // Safety fallback: if still on root page after 350ms, navigate directly to /signin
+        // Safety fallback: if still on root or base landing page after 350ms, navigate directly to /signin
         if (typeof window !== 'undefined') {
           setTimeout(() => {
             try {
-              const currentPath = window.location.pathname.toLowerCase();
-              if (currentPath === '/' || currentPath === '') {
+              const currentPath = (window.location.pathname || '').toLowerCase().replace(/\/+$/, '') || '/';
+              if (currentPath === '/' || currentPath === '/appointment' || (!currentPath.includes('/signin') && !currentPath.includes('/login'))) {
                 window.location.href = 'https://appointment.ivacbd.com/signin';
               }
             } catch {}
@@ -1326,7 +1336,7 @@ export class LoginAdapter {
   }
 
   /**
-   * Navigates to the document-upload page using a verified visible control.
+   * Navigates to the document-upload page using a verified visible control or direct route.
    */
   public navigateToDocumentUpload(): {
     success: boolean;
@@ -1335,7 +1345,11 @@ export class LoginAdapter {
     message: string;
   } {
     const pathname = window.location.pathname.toLowerCase();
-    if (pathname.includes('/document') || pathname.includes('/upload')) {
+    if (
+      pathname.includes('/file-upload') ||
+      pathname.includes('/document') ||
+      pathname.includes('/upload')
+    ) {
       return {
         success: true,
         navigated: false,
@@ -1344,6 +1358,29 @@ export class LoginAdapter {
       };
     }
 
+    // Dismiss notice/advisory popups first
+    this.dismissNoticePopups();
+
+    // 1. Check for "Next Step" button from the "To book your visa appointment" modal/screen
+    const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, a.btn, input[type="button"]'));
+    const nextStepBtn = buttons.find((btn) => {
+      const text = (btn.textContent || (btn as HTMLInputElement).value || '').trim().toLowerCase();
+      return text.includes('next step') || text === 'next' || text === 'proceed';
+    });
+
+    if (nextStepBtn && !(nextStepBtn as HTMLButtonElement).disabled) {
+      try {
+        nextStepBtn.click();
+        return {
+          success: true,
+          navigated: true,
+          alreadyOnPage: false,
+          message: 'Clicked "Next Step" control to proceed to document upload.'
+        };
+      } catch {}
+    }
+
+    // 2. Check other document upload controls
     const control = this.findDocumentUploadControl();
     if (control) {
       try {
@@ -1355,21 +1392,27 @@ export class LoginAdapter {
           message: 'Clicked verified Next/Continue control to document upload.'
         };
       } catch (err: any) {
-        return {
-          success: false,
-          navigated: false,
-          alreadyOnPage: false,
-          message: `Failed to click document navigation control: ${err.message}`
-        };
+        // Fall back to direct navigation below
       }
     }
 
-    return {
-      success: false,
-      navigated: false,
-      alreadyOnPage: false,
-      message: 'Could not find a Next/Continue button to the document upload page. Please navigate there on the website.'
-    };
+    // 3. Direct route navigation to official portal file-upload endpoint
+    try {
+      window.location.href = 'https://appointment.ivacbd.com/appointment/file-upload';
+      return {
+        success: true,
+        navigated: true,
+        alreadyOnPage: false,
+        message: 'Navigating directly to https://appointment.ivacbd.com/appointment/file-upload'
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        navigated: false,
+        alreadyOnPage: false,
+        message: `Could not navigate to document upload page: ${err.message}`
+      };
+    }
   }
 }
 
