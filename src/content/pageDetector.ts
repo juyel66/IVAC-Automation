@@ -198,7 +198,11 @@ export class IvacPageDetector {
 
   private detectDocumentSignals(_url: string, pathname: string): string[] {
     const signals: string[] = [];
-    if (pathname.includes('/document') || pathname.includes('/upload')) {
+    if (
+      pathname.includes('/file-upload') ||
+      pathname.includes('/document') ||
+      pathname.includes('/upload')
+    ) {
       signals.push('URL indicates document upload route');
     }
     const fileInputs = document.querySelectorAll('input[type="file"]');
@@ -207,7 +211,13 @@ export class IvacPageDetector {
     }
     if (document.body) {
       const bodyText = (document.body.innerText || document.body.textContent || '').toLowerCase();
-      if (bodyText.includes('upload document') || bodyText.includes('passport copy')) {
+      if (
+        bodyText.includes('upload primary applicant') ||
+        bodyText.includes('upload document') ||
+        bodyText.includes('passport copy') ||
+        bodyText.includes('total number of applicants') ||
+        bodyText.includes('confirm all information is correct')
+      ) {
         signals.push('Document upload text found');
       }
     }
@@ -216,25 +226,85 @@ export class IvacPageDetector {
 
   private detectCentreSignals(_url: string, pathname: string): string[] {
     const signals: string[] = [];
-    if (pathname.includes('/centre') || pathname.includes('/center') || pathname.includes('/branch')) {
+    if (
+      pathname.includes('/mission') ||
+      pathname.includes('/centre') ||
+      pathname.includes('/center') ||
+      pathname.includes('/branch')
+    ) {
       signals.push('URL indicates centre selection route');
     }
     const centreSelect = document.querySelector('select[name*="center" i], select[name*="centre" i], select[id*="centre" i]');
     if (centreSelect) {
       signals.push('Centre selection dropdown found');
     }
+    if (document.body) {
+      const bodyText = (document.body.innerText || document.body.textContent || '').toLowerCase();
+      if (
+        bodyText.includes('select your ivac center') ||
+        bodyText.includes('select a mission') ||
+        bodyText.includes('confirm mission & ivac center')
+      ) {
+        signals.push('Centre selection text found');
+      }
+    }
     return signals;
   }
 
   private detectCalendarSignals(_url: string, pathname: string): string[] {
     const signals: string[] = [];
-    if (pathname.includes('/appointment') || pathname.includes('/slot') || pathname.includes('/calendar')) {
+
+    // Exclude landing / home routes when Sign In or Take Your Appointment is present
+    const cleanPath = pathname.replace(/\/+$/, '') || '/';
+    const isRootOrBaseRoute = cleanPath === '/' || cleanPath === '/appointment' || cleanPath === '/home';
+    if (isRootOrBaseRoute && document.body) {
+      const bodyText = (document.body.innerText || document.body.textContent || '').toLowerCase();
+      if (
+        bodyText.includes('welcome to indian visa application') ||
+        bodyText.includes('take your appointment') ||
+        bodyText.includes('sign in')
+      ) {
+        if (!pathname.includes('/time-slot') && !pathname.includes('/slot')) {
+          return [];
+        }
+      }
+    }
+
+    // 1. Explicit calendar routes (must NOT be bare '/appointment', '/appointment/file-upload' or '/appointment/mission')
+    const isSpecificCalendarRoute =
+      pathname.includes('/time-slot') ||
+      pathname.includes('/slot-selection') ||
+      pathname.includes('/appointment-slot') ||
+      pathname.includes('/calendar') ||
+      (pathname.includes('/slot') && !pathname.includes('/file-upload') && !pathname.includes('/mission'));
+
+    if (isSpecificCalendarRoute) {
       signals.push('URL indicates appointment calendar');
     }
-    if (document.querySelector('.calendar, .datepicker, [class*="calendar"], [class*="slot"], [id*="slot"]')) {
+
+    // 2. Strict Calendar container / grid check (must not be an arbitrary attribute with "slot")
+    if (document.querySelector('.calendar-table, .ui-datepicker, .slot-container, .appointment-slots, .grid-cols-7 button')) {
       signals.push('Calendar or slot container found');
     }
-    return signals;
+
+    // 3. Concrete date selection text found on the live IVAC portal
+    if (document.body) {
+      const bodyText = (document.body.innerText || document.body.textContent || '').toLowerCase();
+      if (
+        bodyText.includes('select an appointment date') ||
+        bodyText.includes('pick up a date') ||
+        bodyText.includes('your appointment time will be provided in the payment invoice') ||
+        (bodyText.includes('continue booking') && isSpecificCalendarRoute)
+      ) {
+        signals.push('Calendar or date selection text found');
+      }
+    }
+
+    if (isSpecificCalendarRoute || signals.length >= 2) {
+      return signals;
+    }
+
+    return [];
   }
 
   private detectApplicantDetailsSignals(_url: string, pathname: string): string[] {
