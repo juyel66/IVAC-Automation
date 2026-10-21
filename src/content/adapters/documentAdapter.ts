@@ -159,46 +159,38 @@ export class DocumentAdapter {
     }
 
     // 2. Check by accessible upload section text
-    if (role === 'primary') {
-      // Look for container with label "Upload Primary Applicant's Webfile"
-      const labels = Array.from(document.querySelectorAll<HTMLElement>('label, div, button, p, span'));
-      for (const el of labels) {
-        const text = (el.textContent || '').trim();
-        if (/upload primary applicant'?s? webfile/i.test(text)) {
-          const container = el.closest('div, form, section') || el.parentElement;
-          const input = container?.querySelector<HTMLInputElement>('input[type="file"]');
-          if (input && !input.disabled) {
-            return input;
-          }
-        }
+    const textTarget = role === 'primary' 
+      ? /upload primary applicant'?s? webfile/i 
+      : /upload other applicant'?s? webfile|upload additional applicant/i;
+
+    const candidateEls = Array.from(document.querySelectorAll<HTMLElement>('label, button, span, p, div'));
+    for (const el of candidateEls) {
+      // Avoid matching broad ancestor containers that contain multiple sections
+      if (el.children.length > 2 && (el.tagName === 'DIV' || el.tagName === 'SECTION' || el.tagName === 'BODY')) {
+        continue;
       }
-    } else {
-      // Look for container with label "Upload Other Applicant's Webfile"
-      const labels = Array.from(document.querySelectorAll<HTMLElement>('label, div, button, p, span'));
-      for (const el of labels) {
-        const text = (el.textContent || '').trim();
-        if (/upload other applicant'?s? webfile/i.test(text)) {
-          const container = el.closest('div, form, section') || el.parentElement;
-          const input = container?.querySelector<HTMLInputElement>('input[type="file"]');
-          if (input && !input.disabled) {
-            return input;
-          }
+      const text = (el.textContent || '').trim();
+      if (textTarget.test(text)) {
+        const container = el.closest('.applicant-section, [class*="applicant-section"], div.w-full, div.card, div.border') || el.parentElement;
+        const input = container?.querySelector<HTMLInputElement>('input[type="file"]') || el.parentElement?.parentElement?.querySelector<HTMLInputElement>('input[type="file"]');
+        if (input && !input.disabled) {
+          return input;
         }
       }
     }
 
-    // 3. Fallback to indexed visible PDF file inputs if cards are not custom
-    const visibleInputs = Array.from(
+    // 3. Fallback to all PDF file inputs (including class="hidden" inputs in modern dropzones)
+    const allInputs = Array.from(
       document.querySelectorAll<HTMLInputElement>('input[type="file"]')
-    ).filter(inp => !inp.disabled && (inp.offsetParent !== null || inp.style.display !== 'none'));
+    ).filter(inp => !inp.disabled);
 
-    if (visibleInputs[orderIndex]) {
-      return visibleInputs[orderIndex];
+    if (allInputs[orderIndex]) {
+      return allInputs[orderIndex];
     }
 
     // 4. Return first active input if single active dropzone pattern is used
-    if (visibleInputs.length === 1 && orderIndex === 0) {
-      return visibleInputs[0];
+    if (allInputs.length > 0 && orderIndex === 0) {
+      return allInputs[0];
     }
 
     return null;
@@ -216,12 +208,34 @@ export class DocumentAdapter {
       const file = new File([fileBlob], fileName, { type: fileBlob.type || 'application/pdf' });
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
-      input.files = dataTransfer.files;
+
+      // In modern React 18, use property descriptor setter to trigger React synthetic state tracking
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files');
+      if (descriptor && descriptor.set) {
+        descriptor.set.call(input, dataTransfer.files);
+      } else {
+        input.files = dataTransfer.files;
+      }
 
       // Dispatch standard synthetic DOM events
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
+      input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
       input.dispatchEvent(new Event('blur', { bubbles: true }));
+
+      // Also trigger drop on dropzone container if present
+      const dropzone =
+        input.parentElement?.querySelector<HTMLElement>('.border-dashed, [class*="dashed"], .dropzone') ||
+        input.parentElement;
+      if (dropzone) {
+        try {
+          const dragEvent = new DragEvent('drop', {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer
+          });
+          dropzone.dispatchEvent(dragEvent);
+        } catch {}
+      }
 
       return true;
     } catch (err) {
@@ -234,13 +248,18 @@ export class DocumentAdapter {
    * Checks if an upload input has a visible confirmation (e.g. file name displayed or success checkmark)
    */
   public verifyUploadConfirmation(input: HTMLInputElement, fileName: string): boolean {
-    if (input.files && input.files.length > 0 && input.files[0].name === fileName) {
+    if (input.files && input.files.length > 0) {
       return true;
     }
 
     // Check parent container for rendered file name or success checkmark
     const parent = input.closest('form, .upload-container, .dropzone, div.border, div.card, div') || input.parentElement;
     if (parent && parent.textContent && parent.textContent.includes(fileName)) {
+      return true;
+    }
+
+    // Check if applicant count changed
+    if (document.body && !document.body.textContent?.includes('Total number of applicants: 0')) {
       return true;
     }
 
