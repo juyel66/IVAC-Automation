@@ -14,6 +14,7 @@ import { appointmentAdapter } from '../../content/adapters/appointmentAdapter';
 import { PaymentAdapter } from '../../content/adapters/paymentAdapter';
 import { validateOtpFormat } from '../../utils/validation';
 import { ivacPageDetector } from '../../content/pageDetector';
+import { licenseClient } from '../license/licenseClient';
 
 export type WorkflowListener = (session: WorkflowSession) => void;
 
@@ -154,6 +155,14 @@ export class WorkflowEngine {
       this.session.state !== 'POST_CONFIRMATION'
     ) {
       this.addLog('warning', 'Workflow is already active.');
+      return;
+    }
+
+    // 0. Verify server-authoritative license entitlement
+    const authCheck = await licenseClient.isWorkflowAuthorized();
+    if (!authCheck.authorized) {
+      this.setState('ERROR', authCheck.reason || 'Active license required to run automation.');
+      this.addLog('error', `Cannot start automation: ${authCheck.reason || 'Valid license required.'}`);
       return;
     }
 
