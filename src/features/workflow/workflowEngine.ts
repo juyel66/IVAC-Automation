@@ -14,7 +14,11 @@ import { appointmentAdapter } from '../../content/adapters/appointmentAdapter';
 import { PaymentAdapter } from '../../content/adapters/paymentAdapter';
 import { validateOtpFormat } from '../../utils/validation';
 import { ivacPageDetector } from '../../content/pageDetector';
+<<<<<<< HEAD
 import { licenseService } from '../../services/licenseService';
+=======
+import { licenseClient } from '../license/licenseClient';
+>>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
 
 export type WorkflowListener = (session: WorkflowSession) => void;
 
@@ -158,11 +162,19 @@ export class WorkflowEngine {
       return;
     }
 
+<<<<<<< HEAD
     // 0. Verify active license authorization
     const isLicensed = await licenseService.hasActiveLicense();
     if (!isLicensed) {
       this.setState('ERROR', 'Active premium license required. Please activate or renew your license.');
       this.addLog('error', 'Cannot start: No active IVAC Automation license detected on this browser.');
+=======
+    // 0. Verify server-authoritative license entitlement
+    const authCheck = await licenseClient.isWorkflowAuthorized();
+    if (!authCheck.authorized) {
+      this.setState('ERROR', authCheck.reason || 'Active license required to run automation.');
+      this.addLog('error', `Cannot start automation: ${authCheck.reason || 'Valid license required.'}`);
+>>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
       return;
     }
 

@@ -48,9 +48,15 @@ interface DashboardProps {
   onConfirmDocuments?: () => Promise<{ success: boolean; isBlocked?: boolean; message: string }>;
   onSaveAndContinue?: () => Promise<{ success: boolean; message: string }>;
   onUpdatePreferredCentre?: (centre: string) => Promise<void>;
+<<<<<<< HEAD
   onSwitchTab: (tab: 'profiles' | 'documents' | 'workflow' | 'license' | 'settings') => void;
   isLicenseActive?: boolean;
   licenseDaysRemaining?: number;
+=======
+  onSwitchTab: (tab: 'profiles' | 'documents' | 'workflow' | 'settings') => void;
+  licenseState?: import('../types/license').ClientLicenseState | null;
+  onOpenLicenseModal?: () => void;
+>>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
 }
 
 const STAGES = [
@@ -78,8 +84,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSaveAndContinue,
   onUpdatePreferredCentre,
   onSwitchTab,
+<<<<<<< HEAD
   isLicenseActive = true,
   licenseDaysRemaining,
+=======
+  licenseState,
+  onOpenLicenseModal,
+>>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
 }) => {
   const [masterPin, setMasterPin] = useState('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
@@ -104,7 +115,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const isUnlocked = selectedProfile ? credentialManager.isProfileUnlocked(selectedProfile.id) : false;
   const hasEncryptedCreds = !!(selectedProfile?.encryptedPassword);
-  const isProfileReady = !!selectedProfile && hasRequiredDocs && isUnlocked;
+  const isLicenseActive = !licenseState || licenseState.status === 'ACTIVE';
+  const isProfileReady = !!selectedProfile && hasRequiredDocs && isUnlocked && isLicenseActive;
 
   const currentMission = selectedProfile ? getMissionForCentre(selectedProfile.preferredCentre) : 'Dhaka';
 
@@ -254,6 +266,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Missing requirements helper text
   const getDisabledReason = (): string | null => {
+    if (licenseState && licenseState.status !== 'ACTIVE') {
+      return `License status is "${licenseState.status}". Active subscription required to start.`;
+    }
     if (!selectedProfile) return 'Please select or create an applicant profile.';
     if (!hasRequiredDocs) return 'Primary PDF is missing. Upload in PDFs tab.';
     if (!hasEncryptedCreds) return 'Profile has no password set. Edit profile to add password.';
@@ -266,6 +281,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="space-y-3 text-xs">
+<<<<<<< HEAD
       {/* 0. LICENSE REQUIRED / EXPIRED ALERT BANNER */}
       {!isLicenseActive && (
         <div className="p-2.5 bg-gradient-to-r from-amber-950/70 to-rose-950/60 border border-amber-500/70 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in">
@@ -283,6 +299,41 @@ export const Dashboard: React.FC<DashboardProps> = ({
           >
             Activate
           </button>
+=======
+      {/* 0. LICENSE ENTITLEMENT BANNER */}
+      {onOpenLicenseModal && (
+        <div
+          onClick={onOpenLicenseModal}
+          className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+            licenseState?.status === 'ACTIVE'
+              ? 'bg-slate-900/90 border-emerald-500/30 hover:border-emerald-500/60'
+              : 'bg-amber-950/40 border-amber-500/40 hover:border-amber-500/70'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                licenseState?.status === 'ACTIVE' ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+            />
+            <span className="font-bold text-white text-xs">
+              {licenseState?.status === 'ACTIVE' ? 'Premium License Active' : 'License Activation Required'}
+            </span>
+            {licenseState?.status === 'ACTIVE' ? (
+              <span className="text-[10px] text-emerald-400 font-mono">
+                ({licenseState.daysRemaining} days left • {licenseState.activeInstallationsCount}/{licenseState.maxInstallations} slots)
+              </span>
+            ) : (
+              <span className="text-[10px] text-amber-300 font-medium">
+                ({licenseState?.status || 'UNLICENSED'} • Click to Activate)
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] text-slate-400 hover:text-white font-medium flex items-center gap-0.5">
+            <span>License</span>
+            <ChevronRight className="w-3 h-3" />
+          </span>
+>>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
         </div>
       )}
 
