@@ -6,12 +6,18 @@ interface PanelHeaderProps {
   workflowState: WorkflowState;
   onMinimize: () => void;
   onClose: () => void;
+  isLicenseActive?: boolean;
+  daysRemaining?: number;
+  onOpenLicense?: () => void;
 }
 
 export const PanelHeader: React.FC<PanelHeaderProps> = ({
   workflowState,
   onMinimize,
   onClose,
+  isLicenseActive,
+  daysRemaining,
+  onOpenLicense,
 }) => {
   const getStatusBadge = () => {
     switch (workflowState) {
@@ -108,7 +114,21 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
+        {onOpenLicense && (
+          <button
+            type="button"
+            onClick={onOpenLicense}
+            className={`px-1.5 py-0.5 text-[10px] font-bold rounded border transition-colors ${
+              isLicenseActive
+                ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/80 hover:bg-emerald-900'
+                : 'bg-amber-950/80 text-amber-300 border-amber-800/80 hover:bg-amber-900 animate-pulse'
+            }`}
+            title="Click to view License & Subscription"
+          >
+            {isLicenseActive ? `PRO${daysRemaining !== undefined ? ` • ${daysRemaining}d` : ''}` : 'UNLICENSED'}
+          </button>
+        )}
         {getStatusBadge()}
         <button
           onClick={onMinimize}
