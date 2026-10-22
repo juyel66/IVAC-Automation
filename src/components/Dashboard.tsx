@@ -48,7 +48,9 @@ interface DashboardProps {
   onConfirmDocuments?: () => Promise<{ success: boolean; isBlocked?: boolean; message: string }>;
   onSaveAndContinue?: () => Promise<{ success: boolean; message: string }>;
   onUpdatePreferredCentre?: (centre: string) => Promise<void>;
-  onSwitchTab: (tab: 'profiles' | 'documents' | 'workflow' | 'settings') => void;
+  onSwitchTab: (tab: 'profiles' | 'documents' | 'workflow' | 'license' | 'settings') => void;
+  isLicenseActive?: boolean;
+  licenseDaysRemaining?: number;
 }
 
 const STAGES = [
@@ -76,6 +78,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSaveAndContinue,
   onUpdatePreferredCentre,
   onSwitchTab,
+  isLicenseActive = true,
+  licenseDaysRemaining,
 }) => {
   const [masterPin, setMasterPin] = useState('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
@@ -262,6 +266,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="space-y-3 text-xs">
+      {/* 0. LICENSE REQUIRED / EXPIRED ALERT BANNER */}
+      {!isLicenseActive && (
+        <div className="p-2.5 bg-gradient-to-r from-amber-950/70 to-rose-950/60 border border-amber-500/70 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
+            <div>
+              <span className="font-bold text-[11px] text-amber-200 block">License Required</span>
+              <p className="text-[10px] text-amber-300/80">Activate key or purchase pass to run automation.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onSwitchTab('license')}
+            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] shrink-0 transition-colors shadow-sm"
+          >
+            Activate
+          </button>
+        </div>
+      )}
+
       {/* 1. COMPACT INLINE PROGRESS BAR */}
       <div className="p-2.5 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2 shadow-sm">
         <div className="flex items-center justify-between">
@@ -748,12 +772,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="flex items-center gap-2">
           {!isRunning && !isPaused ? (
             <button
-              onClick={onStartWorkflow}
-              disabled={!isProfileReady}
-              className="flex-1 flex items-center justify-center gap-2 py-2 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 disabled:cursor-not-allowed text-white font-semibold rounded-lg shadow-sm transition-all transform active:scale-98"
+              onClick={isLicenseActive ? onStartWorkflow : () => onSwitchTab('license')}
+              disabled={isLicenseActive && !isProfileReady}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 font-semibold rounded-lg shadow-sm transition-all transform active:scale-98 ${
+                !isLicenseActive
+                  ? 'bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold cursor-pointer'
+                  : 'bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 disabled:cursor-not-allowed text-white'
+              }`}
             >
-              <Play className="w-4 h-4 fill-current" />
-              <span>Start Assistant</span>
+              {!isLicenseActive ? (
+                <>
+                  <KeyRound className="w-4 h-4" />
+                  <span>Activate License to Start</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Start Assistant</span>
+                </>
+              )}
             </button>
           ) : isPaused ? (
             <button
