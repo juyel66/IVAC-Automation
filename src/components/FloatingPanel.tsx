@@ -4,6 +4,7 @@ import {
   Users,
   FileText,
   Activity,
+  KeyRound,
   Settings as SettingsIcon
 } from 'lucide-react';
 import { PanelHeader } from './PanelHeader';
@@ -14,6 +15,7 @@ import { ProfileForm } from './ProfileForm';
 import { PdfUploader } from './PdfUploader';
 import { WorkflowProgress } from './WorkflowProgress';
 import { Settings } from './Settings';
+import { LicenseManager } from './LicenseManager';
 
 import { IvacProfile, ProfileFormData } from '../types/profile';
 import { DocumentMetadata } from '../types/document';
@@ -25,8 +27,10 @@ import { workflowEngine } from '../features/workflow/workflowEngine';
 import { loginAdapter } from '../content/adapters/loginAdapter';
 import { encryptPassword } from '../utils/crypto';
 import { credentialManager } from '../features/security/credentialManager';
+import { licenseService } from '../services/licenseService';
+import { ClientLicenseState } from '../types/license';
 
-type ActiveTab = 'dashboard' | 'profiles' | 'documents' | 'workflow' | 'settings';
+type ActiveTab = 'dashboard' | 'profiles' | 'documents' | 'workflow' | 'license' | 'settings';
 
 export const FloatingPanel: React.FC = () => {
   // UI & Persistence States
@@ -46,6 +50,7 @@ export const FloatingPanel: React.FC = () => {
   const [editingProfile, setEditingProfile] = useState<IvacProfile | null>(null);
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
   const [workflowSession, setWorkflowSession] = useState<WorkflowSession>(workflowEngine.getSession());
+  const [license, setLicense] = useState<ClientLicenseState | null>(null);
 
   // Dragging States
   const [isDragging, setIsDragging] = useState(false);
@@ -99,8 +104,18 @@ export const FloatingPanel: React.FC = () => {
       setWorkflowSession(sess);
     });
 
+    // Subscribe to license changes & load initial state
+    licenseService.getStoredLicense().then((lic) => setLicense(lic));
+    licenseService.validateLicense(false).then((valRes) => {
+      if (valRes.data) setLicense(valRes.data);
+    });
+    const unsubscribeLicense = licenseService.subscribe((lic) => {
+      setLicense(lic);
+    });
+
     return () => {
       unsubscribeWorkflow();
+      unsubscribeLicense();
     };
   }, []);
 
@@ -391,6 +406,9 @@ export const FloatingPanel: React.FC = () => {
         workflowState={workflowSession.state}
         onMinimize={handleMinimize}
         onClose={handleClose}
+        isLicenseActive={license?.status === 'ACTIVE' && (!license.expiresAt || new Date(license.expiresAt).getTime() > Date.now())}
+        daysRemaining={license?.daysRemaining}
+        onOpenLicense={() => setActiveTab('license')}
       />
 
       {/* 2. Navigation Tabs */}
@@ -461,6 +479,22 @@ export const FloatingPanel: React.FC = () => {
 
         <button
           onClick={() => {
+            setActiveTab('license');
+            setIsCreatingProfile(false);
+            setEditingProfile(null);
+          }}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium text-[11px] transition-colors ${
+            activeTab === 'license'
+              ? 'bg-slate-800 text-amber-300 font-semibold shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+          }`}
+        >
+          <KeyRound className="w-3.5 h-3.5" />
+          <span>License</span>
+        </button>
+
+        <button
+          onClick={() => {
             setActiveTab('settings');
             setIsCreatingProfile(false);
             setEditingProfile(null);
@@ -500,6 +534,8 @@ export const FloatingPanel: React.FC = () => {
             onSaveAndContinue={handleSaveAndContinue}
             onUpdatePreferredCentre={handleUpdatePreferredCentre}
             onSwitchTab={(tab) => setActiveTab(tab)}
+            isLicenseActive={license?.status === 'ACTIVE' && (!license.expiresAt || new Date(license.expiresAt).getTime() > Date.now())}
+            licenseDaysRemaining={license?.daysRemaining}
           />
         )}
 
@@ -553,6 +589,13 @@ export const FloatingPanel: React.FC = () => {
 
         {activeTab === 'workflow' && (
           <WorkflowProgress session={workflowSession} />
+        )}
+
+        {activeTab === 'license' && (
+          <LicenseManager
+            onLicenseChanged={(updated) => setLicense(updated)}
+            onNavigateToDashboard={() => setActiveTab('dashboard')}
+          />
         )}
 
         {activeTab === 'settings' && (
