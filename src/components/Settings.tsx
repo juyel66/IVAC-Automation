@@ -2,9 +2,11 @@ import React from 'react';
 import {
   RotateCcw,
   ShieldCheck,
-  HardDrive
+  HardDrive,
+  Server
 } from 'lucide-react';
 import { ExtensionSettings } from '../storage/settingsRepository';
+import { licenseService } from '../services/licenseService';
 
 interface SettingsProps {
   settings: ExtensionSettings;
@@ -95,6 +97,40 @@ export const Settings: React.FC<SettingsProps> = ({
             onChange={(e) => onUpdateSettings({ soundAlertsEnabled: e.target.checked })}
             className="w-4 h-4 rounded bg-slate-950 border-slate-700 text-emerald-600 focus:ring-emerald-500"
           />
+        </div>
+      </div>
+
+      {/* Licensing Server Endpoint */}
+      <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl space-y-2">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+          <Server className="w-3.5 h-3.5 text-emerald-400" />
+          <span>License Backend API</span>
+        </h4>
+        <p className="text-[10px] text-slate-400">
+          The endpoint URL for license activation, verification, and payment requests.
+        </p>
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            value={settings.licenseApiUrl || 'http://localhost:5000/api/v1'}
+            onChange={(e) => onUpdateSettings({ licenseApiUrl: e.target.value.trim() })}
+            placeholder="http://localhost:5000/api/v1"
+            className="flex-1 px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-slate-100 font-mono text-[11px] focus:outline-none focus:border-emerald-500"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const res = await licenseService.testServerConnection();
+              if (res.success) {
+                alert('Backend server connection successful! API is active.');
+              } else {
+                alert(`Backend connection failed: ${res.message}`);
+              }
+            }}
+            className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-medium text-[11px] transition-colors shrink-0"
+          >
+            Test
+          </button>
         </div>
       </div>
 
