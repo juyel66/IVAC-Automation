@@ -14,6 +14,7 @@ import { appointmentAdapter } from '../../content/adapters/appointmentAdapter';
 import { PaymentAdapter } from '../../content/adapters/paymentAdapter';
 import { validateOtpFormat } from '../../utils/validation';
 import { ivacPageDetector } from '../../content/pageDetector';
+import { licenseService } from '../../services/licenseService';
 
 export type WorkflowListener = (session: WorkflowSession) => void;
 
@@ -154,6 +155,14 @@ export class WorkflowEngine {
       this.session.state !== 'POST_CONFIRMATION'
     ) {
       this.addLog('warning', 'Workflow is already active.');
+      return;
+    }
+
+    // 0. Verify active license authorization
+    const isLicensed = await licenseService.hasActiveLicense();
+    if (!isLicensed) {
+      this.setState('ERROR', 'Active premium license required. Please activate or renew your license.');
+      this.addLog('error', 'Cannot start: No active IVAC Automation license detected on this browser.');
       return;
     }
 
