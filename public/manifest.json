@@ -10,10 +10,14 @@
   },
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "alarms"
   ],
   "host_permissions": [
-    "https://appointment.ivacbd.com/*"
+    "https://appointment.ivacbd.com/*",
+    "http://localhost:5000/*",
+    "http://127.0.0.1:5000/*",
+    "https://*/*"
   ],
   "action": {
     "default_popup": "index.html",
