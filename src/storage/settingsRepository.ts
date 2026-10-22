@@ -5,6 +5,7 @@ export interface ExtensionSettings {
   autoFillEnabled: boolean;
   soundAlertsEnabled: boolean;
   stayWithinViewport: boolean;
+  licenseApiUrl: string;
 }
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -13,7 +14,8 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   isClosed: false,
   autoFillEnabled: true,
   soundAlertsEnabled: true,
-  stayWithinViewport: true
+  stayWithinViewport: true,
+  licenseApiUrl: 'http://localhost:5000/api/v1'
 };
 
 const SETTINGS_STORAGE_KEY = 'ivac_assistant_settings';
