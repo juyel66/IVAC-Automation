@@ -6,9 +6,11 @@ import {
   PaymentSubmissionInput,
   SubmitPaymentResult,
 } from '../../types/license';
+import { licenseService } from '../../services/licenseService';
 
+const PRIMARY_LICENSE_STORAGE_KEY = 'ivac_client_license_state';
+const LEGACY_LICENSE_STORAGE_KEY = 'ivac_assistant_license';
 const INSTALLATION_STORAGE_KEY = 'ivac_installation_id';
-const LICENSE_STORAGE_KEY = 'ivac_client_license_state';
 const API_URL_STORAGE_KEY = 'ivac_license_api_url';
 const DEFAULT_API_BASE_URL = 'http://localhost:5000/api/v1';
 
@@ -20,6 +22,12 @@ class LicenseClient {
   private cachedApiUrl: string | null = null;
   private cachedPlans: PaymentPlan[] | null = null;
   private plansCacheTimestamp: number = 0;
+  private cachedInstallationId: string | null = null;
+  private installationIdPromise: Promise<string> | null = null;
+
+  constructor() {
+    this.setupStorageListener();
+  }
 
   private isChromeStorage(): boolean {
     return (
@@ -29,33 +37,67 @@ class LicenseClient {
     );
   }
 
+  private setupStorageListener(): void {
+    if (
+      typeof chrome !== 'undefined' &&
+      chrome.storage &&
+      chrome.storage.onChanged
+    ) {
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local') {
+          if (changes[PRIMARY_LICENSE_STORAGE_KEY] || changes[LEGACY_LICENSE_STORAGE_KEY]) {
+            const change = changes[PRIMARY_LICENSE_STORAGE_KEY] || changes[LEGACY_LICENSE_STORAGE_KEY];
+            this.memoryCache = change.newValue || null;
+          }
+        }
+      });
+    }
+  }
+
   /**
-   * Retrieves or generates a persistent installation ID for this browser
+   * Retrieves or generates a persistent installation ID for this browser.
+   * Concurrency-safe: memoizes in memory and avoids duplicate generation during race conditions.
    */
   public async getInstallationId(): Promise<string> {
-    if (this.isChromeStorage()) {
-      return new Promise((resolve) => {
-        chrome.storage.local.get([INSTALLATION_STORAGE_KEY], (res) => {
-          let id = res[INSTALLATION_STORAGE_KEY];
+    if (this.cachedInstallationId) {
+      return this.cachedInstallationId;
+    }
+    if (this.installationIdPromise) {
+      return this.installationIdPromise;
+    }
+
+    this.installationIdPromise = (async () => {
+      let id: string | null = null;
+
+      if (this.isChromeStorage()) {
+        id = await new Promise<string>((resolve) => {
+          chrome.storage.local.get([INSTALLATION_STORAGE_KEY], (res) => {
+            let existing = res?.[INSTALLATION_STORAGE_KEY];
+            if (!existing) {
+              existing = `inst_${this.generateRandomId()}`;
+              chrome.storage.local.set({ [INSTALLATION_STORAGE_KEY]: existing });
+            }
+            resolve(existing);
+          });
+        });
+      } else {
+        try {
+          id = localStorage.getItem(INSTALLATION_STORAGE_KEY);
           if (!id) {
             id = `inst_${this.generateRandomId()}`;
-            chrome.storage.local.set({ [INSTALLATION_STORAGE_KEY]: id });
+            localStorage.setItem(INSTALLATION_STORAGE_KEY, id);
           }
-          resolve(id);
-        });
-      });
-    } else {
-      try {
-        let id = localStorage.getItem(INSTALLATION_STORAGE_KEY);
-        if (!id) {
-          id = `inst_${this.generateRandomId()}`;
-          localStorage.setItem(INSTALLATION_STORAGE_KEY, id);
+        } catch {
+          id = `inst_fallback_${Date.now()}`;
         }
-        return id;
-      } catch {
-        return `inst_fallback_${Date.now()}`;
       }
-    }
+
+      this.cachedInstallationId = id;
+      this.installationIdPromise = null;
+      return id;
+    })();
+
+    return this.installationIdPromise;
   }
 
   private generateRandomId(): string {
@@ -74,7 +116,7 @@ class LicenseClient {
     if (this.isChromeStorage()) {
       return new Promise((resolve) => {
         chrome.storage.local.get([API_URL_STORAGE_KEY], (res) => {
-          this.cachedApiUrl = res[API_URL_STORAGE_KEY] || DEFAULT_API_BASE_URL;
+          this.cachedApiUrl = res?.[API_URL_STORAGE_KEY] || DEFAULT_API_BASE_URL;
           resolve(this.cachedApiUrl!);
         });
       });
@@ -100,26 +142,38 @@ class LicenseClient {
 
   public clearMemoryCache(): void {
     this.memoryCache = null;
+    this.cachedInstallationId = null;
+    this.installationIdPromise = null;
     this.cachedPlans = null;
     this.plansCacheTimestamp = 0;
   }
 
   /**
-   * Retrieves stored license state
+   * Retrieves stored license state from primary or legacy storage
    */
   public async getStoredLicense(): Promise<ClientLicenseState | null> {
     if (this.memoryCache) return { ...this.memoryCache };
 
     if (this.isChromeStorage()) {
       return new Promise((resolve) => {
-        chrome.storage.local.get([LICENSE_STORAGE_KEY], (res) => {
-          this.memoryCache = res[LICENSE_STORAGE_KEY] || null;
-          resolve(this.memoryCache ? { ...this.memoryCache } : null);
-        });
+        chrome.storage.local.get(
+          [PRIMARY_LICENSE_STORAGE_KEY, LEGACY_LICENSE_STORAGE_KEY],
+          (res) => {
+            const raw = res?.[PRIMARY_LICENSE_STORAGE_KEY] || res?.[LEGACY_LICENSE_STORAGE_KEY] || null;
+            this.memoryCache = raw;
+            // Dual-sync if one was missing
+            if (raw && !res?.[PRIMARY_LICENSE_STORAGE_KEY]) {
+              chrome.storage.local.set({ [PRIMARY_LICENSE_STORAGE_KEY]: raw });
+            }
+            resolve(this.memoryCache ? { ...this.memoryCache } : null);
+          }
+        );
       });
     } else {
       try {
-        const item = localStorage.getItem(LICENSE_STORAGE_KEY);
+        const item =
+          localStorage.getItem(PRIMARY_LICENSE_STORAGE_KEY) ||
+          localStorage.getItem(LEGACY_LICENSE_STORAGE_KEY);
         this.memoryCache = item ? JSON.parse(item) : null;
         return this.memoryCache ? { ...this.memoryCache } : null;
       } catch {
@@ -128,24 +182,46 @@ class LicenseClient {
     }
   }
 
-  private async saveLicenseState(state: ClientLicenseState | null): Promise<void> {
-    this.memoryCache = state;
+  public async saveLicenseState(state: ClientLicenseState | null): Promise<void> {
+    this.memoryCache = state ? { ...state } : null;
+
     if (this.isChromeStorage()) {
-      if (state) {
-        await chrome.storage.local.set({ [LICENSE_STORAGE_KEY]: state });
-      } else {
-        await chrome.storage.local.remove([LICENSE_STORAGE_KEY]);
-      }
+      await new Promise<void>((resolve) => {
+        if (state) {
+          chrome.storage.local.set(
+            {
+              [PRIMARY_LICENSE_STORAGE_KEY]: state,
+              [LEGACY_LICENSE_STORAGE_KEY]: state,
+            },
+            () => resolve()
+          );
+        } else {
+          chrome.storage.local.remove(
+            [PRIMARY_LICENSE_STORAGE_KEY, LEGACY_LICENSE_STORAGE_KEY],
+            () => resolve()
+          );
+        }
+      });
     } else {
       try {
         if (state) {
-          localStorage.setItem(LICENSE_STORAGE_KEY, JSON.stringify(state));
+          const serialized = JSON.stringify(state);
+          localStorage.setItem(PRIMARY_LICENSE_STORAGE_KEY, serialized);
+          localStorage.setItem(LEGACY_LICENSE_STORAGE_KEY, serialized);
         } else {
-          localStorage.removeItem(LICENSE_STORAGE_KEY);
+          localStorage.removeItem(PRIMARY_LICENSE_STORAGE_KEY);
+          localStorage.removeItem(LEGACY_LICENSE_STORAGE_KEY);
         }
       } catch {
         // ignore
       }
+    }
+
+    // Dual-sync with centralized licenseService
+    try {
+      await licenseService.saveStoredLicense(state);
+    } catch {
+      // ignore
     }
   }
 
