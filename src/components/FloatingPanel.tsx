@@ -52,6 +52,8 @@ export const FloatingPanel: React.FC = () => {
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
   const [workflowSession, setWorkflowSession] = useState<WorkflowSession>(workflowEngine.getSession());
   const [license, setLicense] = useState<ClientLicenseState | null>(null);
+  const [isLicenseLoading, setIsLicenseLoading] = useState<boolean>(true);
+  const [licenseValidationError, setLicenseValidationError] = useState<string | null>(null);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
 
   // If activeTab is ever set to 'license', immediately open the unified LicenseModal and reset tab
@@ -75,7 +77,12 @@ export const FloatingPanel: React.FC = () => {
 
       try {
         const lic = await licenseService.getStoredLicense();
-        if (lic) setLicense(lic);
+        if (lic) {
+          setLicense(lic);
+          if (lic.status === 'ACTIVE' && (!lic.expiresAt || new Date(lic.expiresAt).getTime() > Date.now())) {
+            setIsLicenseLoading(false);
+          }
+        }
       } catch {
         // offline or unlicensed
       }
@@ -121,15 +128,41 @@ export const FloatingPanel: React.FC = () => {
       setWorkflowSession(sess);
     });
 
-    // Subscribe to license changes & load initial state
-    licenseService.getStoredLicense().then((lic) => {
-      if (lic) setLicense(lic);
-    });
-    licenseService.validateLicense(false).then((valRes) => {
-      if (valRes.data) setLicense(valRes.data);
-    });
-    const unsubscribeLicense = licenseService.subscribe((lic) => {
-      setLicense(lic);
+    // Asynchronous license restoration and validation
+    const restoreAndValidateLicense = async () => {
+      try {
+        const stored = await licenseService.getStoredLicense();
+        if (stored) {
+          setLicense(stored);
+        }
+
+        const valRes = await licenseService.validateLicense(false);
+        if (valRes.data) {
+          setLicense(valRes.data);
+          if (valRes.isValid) {
+            setLicenseValidationError(null);
+          } else {
+            setLicenseValidationError(valRes.message || `License is ${valRes.data.status}`);
+          }
+        } else if (!stored) {
+          setLicenseValidationError(null);
+        }
+      } catch (err: any) {
+        setLicenseValidationError(err.message || 'License server is unreachable.');
+      } finally {
+        setIsLicenseLoading(false);
+      }
+    };
+
+    restoreAndValidateLicense();
+
+    // Subscribe to license changes & live storage updates
+    const unsubscribeLicense = licenseService.subscribe((updatedLic) => {
+      setLicense(updatedLic);
+      if (updatedLic && updatedLic.status === 'ACTIVE') {
+        setLicenseValidationError(null);
+      }
+      setIsLicenseLoading(false);
     });
 
     const licenseTimer = window.setInterval(async () => {
@@ -445,6 +478,8 @@ export const FloatingPanel: React.FC = () => {
         onMinimize={handleMinimize}
         onClose={handleClose}
         isLicenseActive={license?.status === 'ACTIVE' && (!license.expiresAt || new Date(license.expiresAt).getTime() > Date.now())}
+        isLicenseLoading={isLicenseLoading && !license}
+        licenseStatus={license?.status || (isLicenseLoading ? undefined : 'UNLICENSED')}
         daysRemaining={license?.daysRemaining}
         onOpenLicense={() => setIsLicenseModalOpen(true)}
       />
@@ -578,6 +613,8 @@ export const FloatingPanel: React.FC = () => {
               }
             }}
             isLicenseActive={license?.status === 'ACTIVE' && (!license.expiresAt || new Date(license.expiresAt).getTime() > Date.now())}
+            isLicenseLoading={isLicenseLoading && !license}
+            licenseValidationError={licenseValidationError}
             licenseDaysRemaining={license?.daysRemaining}
             licenseState={license}
             onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
@@ -672,7 +709,12 @@ export const FloatingPanel: React.FC = () => {
       <LicenseModal
         isOpen={isLicenseModalOpen}
         onClose={() => setIsLicenseModalOpen(false)}
-        onLicenseUpdated={(st) => setLicense(st)}
+        onLicenseUpdated={async (st) => {
+          setLicense(st);
+          setIsLicenseLoading(false);
+          setLicenseValidationError(st.status === 'ACTIVE' ? null : `License status is ${st.status}`);
+          await licenseService.saveStoredLicense(st);
+        }}
       />
     </>
   );
