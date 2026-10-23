@@ -49,7 +49,8 @@ export const LicenseManager: React.FC<LicenseManagerProps> = ({
   // Payment States
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
   const [plans, setPlans] = useState<PaymentPlan[]>([]);
-  const [selectedPlanCode, setSelectedPlanCode] = useState<string>('PLAN_30D');
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
+  const [selectedPlanCode, setSelectedPlanCode] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('BKASH');
   const [senderContact, setSenderContact] = useState('');
   const [transactionId, setTransactionId] = useState('');
@@ -102,11 +103,18 @@ export const LicenseManager: React.FC<LicenseManagerProps> = ({
   const loadPaymentInfo = async () => {
     setIsLoadingPaymentInfo(true);
     try {
-      const info = await licenseService.getPaymentInstructions();
-      setPaymentSettings(info.settings);
-      setPlans(info.plans);
-      if (info.plans.length > 0) {
-        setSelectedPlanCode(info.plans[0].code);
+      const [fetchedPlans, info] = await Promise.all([
+        licenseService.getPublicPlans().catch(() => [] as PaymentPlan[]),
+        licenseService.getPaymentInstructions().catch(() => null),
+      ]);
+      if (info?.settings) {
+        setPaymentSettings(info.settings);
+      }
+      const activePlans = fetchedPlans.length > 0 ? fetchedPlans : (info?.plans || []);
+      setPlans(activePlans);
+      if (activePlans.length > 0) {
+        setSelectedPlanId(activePlans[0].id);
+        setSelectedPlanCode(activePlans[0].code);
       }
     } catch {
       // Backend may be offline or unseeded yet
@@ -188,10 +196,14 @@ export const LicenseManager: React.FC<LicenseManagerProps> = ({
     }
 
     setIsSubmittingPayment(true);
+    const selectedPlan = plans.find(
+      (p) => (selectedPlanId ? p.id === selectedPlanId : p.code === selectedPlanCode)
+    );
     const res = await licenseService.submitPaymentRequest({
       transactionId: transactionId.trim().toUpperCase(),
       paymentMethod,
-      planCode: selectedPlanCode,
+      planId: selectedPlan?.id,
+      planCode: selectedPlan?.code || selectedPlanCode,
       payerContact: senderContact.trim(),
       customerName: customerName.trim() || undefined,
       licenseId: license?.licenseId || undefined,
@@ -604,21 +616,16 @@ export const LicenseManager: React.FC<LicenseManagerProps> = ({
           <div className="space-y-1.5">
             <span className="text-[11px] font-semibold text-slate-300 block">Select Access Pass:</span>
             <div className="grid grid-cols-2 gap-2">
-              {(plans.length > 0
-                ? plans
-                : [
-                    { code: 'PLAN_7D', name: '7 Days Pass', validityDays: 7, price: 300, maxInstallations: 1, currency: 'BDT' },
-                    { code: 'PLAN_15D', name: '15 Days Starter', validityDays: 15, price: 600, maxInstallations: 1, currency: 'BDT' },
-                    { code: 'PLAN_30D', name: '30 Days Standard', validityDays: 30, price: 1000, maxInstallations: 1, currency: 'BDT' },
-                    { code: 'PLAN_90D', name: '90 Days Agency', validityDays: 90, price: 2700, maxInstallations: 2, currency: 'BDT' },
-                  ]
-              ).map((plan) => {
-                const isSelected = selectedPlanCode === plan.code;
+              {plans.map((plan) => {
+                const isSelected = selectedPlanId ? selectedPlanId === plan.id : selectedPlanCode === plan.code;
                 return (
                   <button
-                    key={plan.code}
+                    key={plan.id || plan.code}
                     type="button"
-                    onClick={() => setSelectedPlanCode(plan.code)}
+                    onClick={() => {
+                      setSelectedPlanId(plan.id);
+                      setSelectedPlanCode(plan.code);
+                    }}
                     className={`p-2 rounded-xl text-left border transition-all ${
                       isSelected
                         ? 'bg-amber-950/40 border-amber-500 text-amber-200 shadow-sm'
@@ -634,6 +641,11 @@ export const LicenseManager: React.FC<LicenseManagerProps> = ({
                     <span className="text-[10px] text-slate-500 block">
                       {plan.validityDays} Days • {plan.maxInstallations} Browser{plan.maxInstallations > 1 ? 's' : ''}
                     </span>
+                    {plan.description && (
+                      <span className="text-[9px] text-slate-400/80 italic block mt-0.5 line-clamp-1">
+                        {plan.description}
+                      </span>
+                    )}
                   </button>
                 );
               })}

@@ -1,53 +1,49 @@
-<<<<<<< HEAD
 /**
  * IVAC Assistant - License & Subscription Types
  */
 
-export type LicenseStatus = 'PENDING' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED' | 'REVOKED' | 'UNLICENSED';
+export type LicenseStatus =
+  | 'PENDING'
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'SUSPENDED'
+  | 'REVOKED'
+  | 'UNLICENSED';
+
+export type LicenseClientStatus = LicenseStatus;
 
 export type PaymentMethod = 'BKASH' | 'NAGAD' | 'ROCKET' | 'UPAY' | 'BANK';
 
 export interface ClientLicenseState {
   licenseKey: string;
-  licenseId?: string;
+  licenseId?: string | null;
   status: LicenseStatus;
-  activatedAt?: string;
-  expiresAt?: string;
-=======
-export type LicenseClientStatus =
-  | 'UNLICENSED'
-  | 'PENDING'
-  | 'ACTIVE'
-  | 'EXPIRED'
-  | 'SUSPENDED'
-  | 'REVOKED';
-
-export interface ClientLicenseState {
-  licenseKey: string;
-  licenseId: string;
-  status: LicenseClientStatus;
-  activatedAt: string | null;
-  expiresAt: string | null;
->>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
+  activatedAt?: string | null;
+  expiresAt?: string | null;
   daysRemaining: number;
   maxInstallations: number;
   activeInstallationsCount: number;
   availableSlots: number;
-<<<<<<< HEAD
-  installationId: string;
-  installationLabel: string;
-  lastValidatedAt: number;
+  installationId?: string;
+  installationLabel?: string;
+  lastValidatedAt?: number;
+  lastCheckedAt?: number;
+  signature?: string;
   customerName?: string;
   customerContact?: string;
 }
 
 export interface PaymentPlan {
+  id: string;
   code: string;
   name: string;
   validityDays: number;
   maxInstallations: number;
   price: number;
   currency: string;
+  description?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
 }
 
 export interface PaymentSettings {
@@ -66,8 +62,10 @@ export interface PublicPaymentInfo {
 export interface SubmitPaymentPayload {
   transactionId: string;
   paymentMethod: PaymentMethod;
+  planId?: string;
   planCode: string;
   payerContact: string;
+  payerName?: string | null;
   licenseId?: string | null;
   customerName?: string | null;
 }
@@ -77,34 +75,29 @@ export interface SubmitPaymentResult {
   transactionId: string;
   status: string;
   message: string;
-=======
-  signature?: string;
-  lastCheckedAt: number;
+  snapshot?: {
+    planId?: string;
+    planCode?: string;
+    planName?: string;
+    price?: number;
+    currency?: string;
+    validityDays?: number;
+    maxInstallations?: number;
+  };
 }
 
 export interface PaymentInstructionsData {
-  settings: {
-    bkashNumber: string;
-    nagadNumber: string;
-    bankInstructions?: string | null;
-    whatsappNumber: string;
-    instructionText?: string | null;
-  };
-  plans: Array<{
-    code: string;
-    name: string;
-    validityDays: number;
-    maxInstallations: number;
-    price: number;
-    currency: string;
-  }>;
+  settings: PaymentSettings;
+  plans: PaymentPlan[];
 }
 
 export interface PaymentSubmissionInput {
   transactionId: string;
-  paymentMethod: 'BKASH' | 'NAGAD' | 'ROCKET' | 'UPAY' | 'BANK';
-  planCode: string;
+  paymentMethod: PaymentMethod;
+  planId?: string;
+  planCode?: string;
   payerContact: string;
+  payerName?: string | null;
+  customerName?: string | null;
   licenseId?: string | null;
->>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
 }

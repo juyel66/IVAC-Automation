@@ -2,7 +2,9 @@ import {
   ClientLicenseState,
   LicenseClientStatus,
   PaymentInstructionsData,
+  PaymentPlan,
   PaymentSubmissionInput,
+  SubmitPaymentResult,
 } from '../../types/license';
 
 const INSTALLATION_STORAGE_KEY = 'ivac_installation_id';
@@ -16,6 +18,8 @@ const ENTITLEMENT_CACHE_MS = 5 * 60 * 1000;
 class LicenseClient {
   private memoryCache: ClientLicenseState | null = null;
   private cachedApiUrl: string | null = null;
+  private cachedPlans: PaymentPlan[] | null = null;
+  private plansCacheTimestamp: number = 0;
 
   private isChromeStorage(): boolean {
     return (
@@ -96,6 +100,8 @@ class LicenseClient {
 
   public clearMemoryCache(): void {
     this.memoryCache = null;
+    this.cachedPlans = null;
+    this.plansCacheTimestamp = 0;
   }
 
   /**
@@ -356,21 +362,45 @@ class LicenseClient {
   }
 
   /**
+   * Fetches dynamic active subscription plans from the public endpoint
+   */
+  public async getPublicPlans(forceRefresh: boolean = false): Promise<PaymentPlan[]> {
+    const now = Date.now();
+    if (!forceRefresh && this.cachedPlans && now - this.plansCacheTimestamp < ENTITLEMENT_CACHE_MS) {
+      return this.cachedPlans;
+    }
+
+    const baseUrl = await this.getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/public/plans`);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to fetch subscription plans');
+    }
+
+    this.cachedPlans = json.data || [];
+    this.plansCacheTimestamp = now;
+    return this.cachedPlans;
+  }
+
+  /**
    * Fetches public payment instructions and available packages
    */
-  public async getPaymentInstructions(): Promise<PaymentInstructionsData> {
+  public async getPaymentInstructions(forceRefresh: boolean = false): Promise<PaymentInstructionsData> {
     const baseUrl = await this.getApiBaseUrl();
     const res = await fetch(`${baseUrl}/public/payment-instructions`);
-    const json = await res.json();
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Failed to fetch payment instructions');
+    }
     return json.data;
   }
 
   /**
-   * Submits a manual payment request
+   * Submits a manual payment request referencing a database plan
    */
   public async submitPaymentRequest(
     input: PaymentSubmissionInput
-  ): Promise<{ requestId: string; message: string }> {
+  ): Promise<SubmitPaymentResult> {
     const baseUrl = await this.getApiBaseUrl();
     const res = await fetch(`${baseUrl}/payments/requests`, {
       method: 'POST',
@@ -380,6 +410,10 @@ class LicenseClient {
 
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
+      if (body.error?.code === 'INVALID_PLAN' || body.message?.toLowerCase().includes('plan')) {
+        this.cachedPlans = null;
+        this.plansCacheTimestamp = 0;
+      }
       throw new Error(body.message || 'Payment submission failed.');
     }
 

@@ -48,15 +48,11 @@ interface DashboardProps {
   onConfirmDocuments?: () => Promise<{ success: boolean; isBlocked?: boolean; message: string }>;
   onSaveAndContinue?: () => Promise<{ success: boolean; message: string }>;
   onUpdatePreferredCentre?: (centre: string) => Promise<void>;
-<<<<<<< HEAD
   onSwitchTab: (tab: 'profiles' | 'documents' | 'workflow' | 'license' | 'settings') => void;
   isLicenseActive?: boolean;
   licenseDaysRemaining?: number;
-=======
-  onSwitchTab: (tab: 'profiles' | 'documents' | 'workflow' | 'settings') => void;
   licenseState?: import('../types/license').ClientLicenseState | null;
   onOpenLicenseModal?: () => void;
->>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
 }
 
 const STAGES = [
@@ -84,13 +80,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSaveAndContinue,
   onUpdatePreferredCentre,
   onSwitchTab,
-<<<<<<< HEAD
-  isLicenseActive = true,
+  isLicenseActive: isLicenseActiveProp,
   licenseDaysRemaining,
-=======
   licenseState,
   onOpenLicenseModal,
->>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
 }) => {
   const [masterPin, setMasterPin] = useState('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
@@ -115,7 +108,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const isUnlocked = selectedProfile ? credentialManager.isProfileUnlocked(selectedProfile.id) : false;
   const hasEncryptedCreds = !!(selectedProfile?.encryptedPassword);
-  const isLicenseActive = !licenseState || licenseState.status === 'ACTIVE';
+  const isLicenseActive = isLicenseActiveProp !== undefined ? isLicenseActiveProp : (!licenseState || licenseState.status === 'ACTIVE');
   const isProfileReady = !!selectedProfile && hasRequiredDocs && isUnlocked && isLicenseActive;
 
   const currentMission = selectedProfile ? getMissionForCentre(selectedProfile.preferredCentre) : 'Dhaka';
@@ -281,9 +274,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="space-y-3 text-xs">
-<<<<<<< HEAD
-      {/* 0. LICENSE REQUIRED / EXPIRED ALERT BANNER */}
-      {!isLicenseActive && (
+      {/* 0. LICENSE ENTITLEMENT BANNER */}
+      {!isLicenseActive || (licenseState && licenseState.status !== 'ACTIVE') ? (
         <div className="p-2.5 bg-gradient-to-r from-amber-950/70 to-rose-950/60 border border-amber-500/70 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in">
           <div className="flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
@@ -294,46 +286,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => onSwitchTab('license')}
+            onClick={() => (onOpenLicenseModal ? onOpenLicenseModal() : onSwitchTab('license'))}
             className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] shrink-0 transition-colors shadow-sm"
           >
             Activate
           </button>
-=======
-      {/* 0. LICENSE ENTITLEMENT BANNER */}
-      {onOpenLicenseModal && (
+        </div>
+      ) : (
         <div
-          onClick={onOpenLicenseModal}
-          className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-            licenseState?.status === 'ACTIVE'
-              ? 'bg-slate-900/90 border-emerald-500/30 hover:border-emerald-500/60'
-              : 'bg-amber-950/40 border-amber-500/40 hover:border-amber-500/70'
-          }`}
+          onClick={() => (onOpenLicenseModal ? onOpenLicenseModal() : onSwitchTab('license'))}
+          className="p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all bg-slate-900/90 border-emerald-500/30 hover:border-emerald-500/60"
         >
           <div className="flex items-center gap-2">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                licenseState?.status === 'ACTIVE' ? 'bg-emerald-400' : 'bg-amber-400'
-              }`}
-            />
-            <span className="font-bold text-white text-xs">
-              {licenseState?.status === 'ACTIVE' ? 'Premium License Active' : 'License Activation Required'}
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+            <span className="font-bold text-white text-xs">Premium License Active</span>
+            <span className="text-[10px] text-emerald-400 font-mono">
+              ({licenseDaysRemaining ?? licenseState?.daysRemaining ?? 0} days left)
             </span>
-            {licenseState?.status === 'ACTIVE' ? (
-              <span className="text-[10px] text-emerald-400 font-mono">
-                ({licenseState.daysRemaining} days left • {licenseState.activeInstallationsCount}/{licenseState.maxInstallations} slots)
-              </span>
-            ) : (
-              <span className="text-[10px] text-amber-300 font-medium">
-                ({licenseState?.status || 'UNLICENSED'} • Click to Activate)
-              </span>
-            )}
           </div>
           <span className="text-[10px] text-slate-400 hover:text-white font-medium flex items-center gap-0.5">
             <span>License</span>
             <ChevronRight className="w-3 h-3" />
           </span>
->>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
         </div>
       )}
 
@@ -823,7 +797,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="flex items-center gap-2">
           {!isRunning && !isPaused ? (
             <button
-              onClick={isLicenseActive ? onStartWorkflow : () => onSwitchTab('license')}
+              onClick={
+                isLicenseActive
+                  ? onStartWorkflow
+                  : onOpenLicenseModal
+                  ? onOpenLicenseModal
+                  : () => onSwitchTab('license')
+              }
               disabled={isLicenseActive && !isProfileReady}
               className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 font-semibold rounded-lg shadow-sm transition-all transform active:scale-98 ${
                 !isLicenseActive

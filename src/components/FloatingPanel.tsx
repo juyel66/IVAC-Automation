@@ -27,15 +27,9 @@ import { workflowEngine } from '../features/workflow/workflowEngine';
 import { loginAdapter } from '../content/adapters/loginAdapter';
 import { encryptPassword } from '../utils/crypto';
 import { credentialManager } from '../features/security/credentialManager';
-<<<<<<< HEAD
 import { licenseService } from '../services/licenseService';
-import { ClientLicenseState } from '../types/license';
-=======
 import { LicenseModal } from './LicenseModal';
-import { licenseClient } from '../features/license/licenseClient';
 import { ClientLicenseState } from '../types/license';
-import { KeyRound, ShieldCheck } from 'lucide-react';
->>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
 
 type ActiveTab = 'dashboard' | 'profiles' | 'documents' | 'workflow' | 'license' | 'settings';
 
@@ -57,12 +51,16 @@ export const FloatingPanel: React.FC = () => {
   const [editingProfile, setEditingProfile] = useState<IvacProfile | null>(null);
   const [isCreatingProfile, setIsCreatingProfile] = useState(false);
   const [workflowSession, setWorkflowSession] = useState<WorkflowSession>(workflowEngine.getSession());
-<<<<<<< HEAD
   const [license, setLicense] = useState<ClientLicenseState | null>(null);
-=======
-  const [licenseState, setLicenseState] = useState<ClientLicenseState | null>(null);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
->>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
+
+  // If activeTab is ever set to 'license', immediately open the unified LicenseModal and reset tab
+  useEffect(() => {
+    if (activeTab === 'license') {
+      setIsLicenseModalOpen(true);
+      setActiveTab('dashboard');
+    }
+  }, [activeTab]);
 
   // Dragging States
   const [isDragging, setIsDragging] = useState(false);
@@ -76,8 +74,8 @@ export const FloatingPanel: React.FC = () => {
       setSettings(storedSettings);
 
       try {
-        const lic = await licenseClient.validateLicense(false);
-        setLicenseState(lic);
+        const lic = await licenseService.getStoredLicense();
+        if (lic) setLicense(lic);
       } catch {
         // offline or unlicensed
       }
@@ -123,26 +121,25 @@ export const FloatingPanel: React.FC = () => {
       setWorkflowSession(sess);
     });
 
-<<<<<<< HEAD
     // Subscribe to license changes & load initial state
-    licenseService.getStoredLicense().then((lic) => setLicense(lic));
+    licenseService.getStoredLicense().then((lic) => {
+      if (lic) setLicense(lic);
+    });
     licenseService.validateLicense(false).then((valRes) => {
       if (valRes.data) setLicense(valRes.data);
     });
     const unsubscribeLicense = licenseService.subscribe((lic) => {
       setLicense(lic);
     });
-=======
-    // Periodic background validation
+
     const licenseTimer = window.setInterval(async () => {
       try {
-        const lic = await licenseClient.validateLicense(false);
-        setLicenseState(lic);
+        const valRes = await licenseService.validateLicense(false);
+        if (valRes.data) setLicense(valRes.data);
       } catch {
         // offline or invalid
       }
     }, 5 * 60 * 1000);
->>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
 
     return () => {
       window.clearInterval(licenseTimer);
@@ -403,25 +400,34 @@ export const FloatingPanel: React.FC = () => {
   // Render minimized floating pill button
   if (settings.isClosed || settings.isMinimized) {
     return (
-      <div
-        style={{
-          position: 'fixed',
-          top: `${Math.max(12, settings.panelPosition.y)}px`,
-          right: `${Math.max(12, settings.panelPosition.x)}px`,
-          zIndex: 2147483647
-        }}
-      >
-        <MinimizedButton
-          workflowState={workflowSession.state}
-          onRestore={handleRestore}
+      <>
+        <div
+          style={{
+            position: 'fixed',
+            top: `${Math.max(12, settings.panelPosition.y)}px`,
+            right: `${Math.max(12, settings.panelPosition.x)}px`,
+            zIndex: 2147483647
+          }}
+        >
+          <MinimizedButton
+            workflowState={workflowSession.state}
+            onRestore={handleRestore}
+          />
+        </div>
+
+        <LicenseModal
+          isOpen={isLicenseModalOpen}
+          onClose={() => setIsLicenseModalOpen(false)}
+          onLicenseUpdated={(st) => setLicense(st)}
         />
-      </div>
+      </>
     );
   }
 
   return (
-    <div
-      ref={panelRef}
+    <>
+      <div
+        ref={panelRef}
       onMouseDown={handleMouseDown}
       style={{
         position: 'fixed',
@@ -440,7 +446,7 @@ export const FloatingPanel: React.FC = () => {
         onClose={handleClose}
         isLicenseActive={license?.status === 'ACTIVE' && (!license.expiresAt || new Date(license.expiresAt).getTime() > Date.now())}
         daysRemaining={license?.daysRemaining}
-        onOpenLicense={() => setActiveTab('license')}
+        onOpenLicense={() => setIsLicenseModalOpen(true)}
       />
 
       {/* 2. Navigation Tabs */}
@@ -509,34 +515,19 @@ export const FloatingPanel: React.FC = () => {
           <span>Logs</span>
         </button>
 
-        {/* License Authority Status Pill */}
+        {/* Unified License & Subscription Action Button */}
         <button
+          type="button"
           onClick={() => setIsLicenseModalOpen(true)}
-          className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold text-[10px] transition-colors ml-auto ${
-            licenseState?.status === 'ACTIVE'
-              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-              : 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium text-[11px] transition-colors ml-auto ${
+            license?.status === 'ACTIVE'
+              ? 'text-emerald-400 hover:text-emerald-300 hover:bg-slate-900 border border-emerald-500/20'
+              : 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 animate-pulse font-semibold'
           }`}
-          title="Manage License"
-        >
-          <KeyRound className="w-3 h-3" />
-          <span>{licenseState?.status === 'ACTIVE' ? `PRO (${licenseState.daysRemaining}d)` : 'LICENSE'}</span>
-        </button>
-
-        <button
-          onClick={() => {
-            setActiveTab('license');
-            setIsCreatingProfile(false);
-            setEditingProfile(null);
-          }}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium text-[11px] transition-colors ${
-            activeTab === 'license'
-              ? 'bg-slate-800 text-amber-300 font-semibold shadow-sm'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-          }`}
+          title="License & Subscription"
         >
           <KeyRound className="w-3.5 h-3.5" />
-          <span>License</span>
+          <span>{license?.status === 'ACTIVE' ? `PRO (${license.daysRemaining}d)` : 'License'}</span>
         </button>
 
         <button
@@ -579,14 +570,17 @@ export const FloatingPanel: React.FC = () => {
             onConfirmDocuments={handleConfirmDocuments}
             onSaveAndContinue={handleSaveAndContinue}
             onUpdatePreferredCentre={handleUpdatePreferredCentre}
-            onSwitchTab={(tab) => setActiveTab(tab)}
-<<<<<<< HEAD
+            onSwitchTab={(tab) => {
+              if (tab === 'license') {
+                setIsLicenseModalOpen(true);
+              } else {
+                setActiveTab(tab);
+              }
+            }}
             isLicenseActive={license?.status === 'ACTIVE' && (!license.expiresAt || new Date(license.expiresAt).getTime() > Date.now())}
             licenseDaysRemaining={license?.daysRemaining}
-=======
-            licenseState={licenseState}
+            licenseState={license}
             onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
->>>>>>> a72a1774e3f6927d0d5f9b883876b2bfcaf6d06c
           />
         )}
 
@@ -643,10 +637,19 @@ export const FloatingPanel: React.FC = () => {
         )}
 
         {activeTab === 'license' && (
-          <LicenseManager
-            onLicenseChanged={(updated) => setLicense(updated)}
-            onNavigateToDashboard={() => setActiveTab('dashboard')}
-          />
+          <div className="p-6 text-center space-y-3">
+            <p className="text-slate-300 text-xs">Opening license and subscription details...</p>
+            <button
+              type="button"
+              onClick={() => {
+                setIsLicenseModalOpen(true);
+                setActiveTab('dashboard');
+              }}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold"
+            >
+              Open License
+            </button>
+          </div>
         )}
 
         {activeTab === 'settings' && (
@@ -663,12 +666,14 @@ export const FloatingPanel: React.FC = () => {
         )}
       </div>
 
-      {/* License Management & Activation Modal */}
+      </div>
+
+      {/* License Management & Activation Modal rendered outside panel-glass */}
       <LicenseModal
         isOpen={isLicenseModalOpen}
         onClose={() => setIsLicenseModalOpen(false)}
-        onLicenseUpdated={(st) => setLicenseState(st)}
+        onLicenseUpdated={(st) => setLicense(st)}
       />
-    </div>
+    </>
   );
 };

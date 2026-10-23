@@ -7,6 +7,7 @@
 import {
   ClientLicenseState,
   LicenseStatus,
+  PaymentPlan,
   PublicPaymentInfo,
   SubmitPaymentPayload,
   SubmitPaymentResult,
@@ -38,6 +39,10 @@ class LicenseService {
    */
   public setStrictMode(strict: boolean): void {
     this.strictModeInTests = strict;
+  }
+
+  public isStrictModeActive(): boolean {
+    return this.strictModeInTests;
   }
 
   /**
@@ -492,6 +497,20 @@ class LicenseService {
   }
 
   /**
+   * Fetches dynamic active subscription plans from GET /api/v1/public/plans
+   */
+  public async getPublicPlans(): Promise<PaymentPlan[]> {
+    const res = await this.fetchApi('/public/plans', { method: 'GET' });
+    const body = res.body || {};
+
+    if (!res.ok || !body.success) {
+      throw new Error(body.message || res.error || 'Failed to fetch subscription plans');
+    }
+
+    return body.data || [];
+  }
+
+  /**
    * Fetches official payment numbers, pricing, and instructions
    */
   public async getPaymentInstructions(): Promise<PublicPaymentInfo> {
@@ -516,10 +535,12 @@ class LicenseService {
       body: {
         transactionId: payload.transactionId.trim().toUpperCase(),
         paymentMethod: payload.paymentMethod,
+        planId: payload.planId || undefined,
         planCode: payload.planCode,
         payerContact: payload.payerContact.trim(),
+        payerName: payload.payerName?.trim() || payload.customerName?.trim() || undefined,
         licenseId: payload.licenseId || undefined,
-        customerName: payload.customerName?.trim() || undefined,
+        customerName: payload.customerName?.trim() || payload.payerName?.trim() || undefined,
       },
     });
 
