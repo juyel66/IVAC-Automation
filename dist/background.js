@@ -1,7 +1,7 @@
 var A = Object.defineProperty;
-var L = (r, e, t) => e in r ? A(r, e, { enumerable: !0, configurable: !0, writable: !0, value: t }) : r[e] = t;
-var u = (r, e, t) => L(r, typeof e != "symbol" ? e + "" : e, t);
-const g = {
+var v = (r, e, t) => e in r ? A(r, e, { enumerable: !0, configurable: !0, writable: !0, value: t }) : r[e] = t;
+var h = (r, e, t) => v(r, typeof e != "symbol" ? e + "" : e, t);
+const f = {
   panelPosition: { x: 24, y: 24 },
   // Top-right offset default
   isMinimized: !1,
@@ -10,47 +10,47 @@ const g = {
   soundAlertsEnabled: !0,
   stayWithinViewport: !0,
   licenseApiUrl: "http://localhost:5000/api/v1"
-}, h = "ivac_assistant_settings";
-class v {
+}, m = "ivac_assistant_settings";
+class L {
   isChromeStorage() {
     return typeof chrome < "u" && !!chrome.storage && !!chrome.storage.local;
   }
   async getSettings() {
     if (this.isChromeStorage())
       return new Promise((e) => {
-        chrome.storage.local.get([h], (t) => {
-          e({ ...g, ...t[h] || {} });
+        chrome.storage.local.get([m], (t) => {
+          e({ ...f, ...t[m] || {} });
         });
       });
     try {
-      const e = localStorage.getItem(h);
-      return e ? { ...g, ...JSON.parse(e) } : g;
+      const e = localStorage.getItem(m);
+      return e ? { ...f, ...JSON.parse(e) } : f;
     } catch {
-      return g;
+      return f;
     }
   }
   async saveSettings(e) {
     const a = { ...await this.getSettings(), ...e };
     if (this.isChromeStorage())
       return new Promise((o) => {
-        chrome.storage.local.set({ [h]: a }, () => {
+        chrome.storage.local.set({ [m]: a }, () => {
           o(a);
         });
       });
     try {
-      localStorage.setItem(h, JSON.stringify(a));
+      localStorage.setItem(m, JSON.stringify(a));
     } catch {
     }
     return a;
   }
 }
-const E = new v(), d = "ivac_assistant_license", m = "ivac_installation_id", b = 1440 * 60 * 1e3;
+const b = new L(), d = "ivac_assistant_license", g = "ivac_installation_id", E = 1440 * 60 * 1e3;
 class C {
   constructor() {
-    u(this, "listeners", /* @__PURE__ */ new Set());
-    u(this, "cachedLicense", null);
-    u(this, "isLoaded", !1);
-    u(this, "strictModeInTests", !1);
+    h(this, "listeners", /* @__PURE__ */ new Set());
+    h(this, "cachedLicense", null);
+    h(this, "isLoaded", !1);
+    h(this, "strictModeInTests", !1);
   }
   isChromeStorage() {
     return typeof chrome < "u" && !!chrome.storage && !!chrome.storage.local;
@@ -60,6 +60,9 @@ class C {
    */
   setStrictMode(e) {
     this.strictModeInTests = e;
+  }
+  isStrictModeActive() {
+    return this.strictModeInTests;
   }
   /**
    * Subscribe to license changes (reactive UI updates)
@@ -83,14 +86,14 @@ class C {
   async getInstallationId() {
     if (this.isChromeStorage())
       return new Promise((e) => {
-        chrome.storage.local.get([m], (t) => {
-          let a = t[m];
-          a || (a = this.generateInstallationId(), chrome.storage.local.set({ [m]: a })), e(a);
+        chrome.storage.local.get([g], (t) => {
+          let a = t[g];
+          a || (a = this.generateInstallationId(), chrome.storage.local.set({ [g]: a })), e(a);
         });
       });
     try {
-      let e = localStorage.getItem(m);
-      return e || (e = this.generateInstallationId(), localStorage.setItem(m, e)), e;
+      let e = localStorage.getItem(g);
+      return e || (e = this.generateInstallationId(), localStorage.setItem(g, e)), e;
     } catch {
       return this.generateInstallationId();
     }
@@ -146,7 +149,7 @@ class C {
    */
   async getApiBaseUrl() {
     var t;
-    return ((t = (await E.getSettings()).licenseApiUrl) == null ? void 0 : t.replace(/\/+$/, "")) || "http://localhost:5000/api/v1";
+    return ((t = (await b.getSettings()).licenseApiUrl) == null ? void 0 : t.replace(/\/+$/, "")) || "http://localhost:5000/api/v1";
   }
   /**
    * Centralized network request execution.
@@ -263,7 +266,7 @@ class C {
    * Handles offline tolerance gracefully up to 24 hours.
    */
   async validateLicense(e = !1) {
-    var l, f;
+    var l, u;
     const t = await this.getStoredLicense();
     if (!t || !t.licenseKey)
       return { success: !0, isValid: !1, message: "No license key found" };
@@ -278,17 +281,17 @@ class C {
       }
     }), n = i.body || {};
     if (!i.ok || !n.success) {
-      if ((i.status === 0 || i.error) && t.status === "ACTIVE" && t.expiresAt && new Date(t.expiresAt).getTime() > a && a - (t.lastValidatedAt || 0) < b)
+      if ((i.status === 0 || i.error) && t.status === "ACTIVE" && t.expiresAt && new Date(t.expiresAt).getTime() > a && a - (t.lastValidatedAt || 0) < E)
         return {
           success: !0,
           isValid: !0,
           data: t,
           message: "Server unreachable. Running with offline grace period."
         };
-      const p = ((l = n.data) == null ? void 0 : l.status) || (i.status === 404 ? "UNLICENSED" : "EXPIRED"), S = {
+      const y = ((l = n.data) == null ? void 0 : l.status) || (i.status === 404 ? "UNLICENSED" : "EXPIRED"), S = {
         ...t,
-        status: p,
-        daysRemaining: ((f = n.data) == null ? void 0 : f.daysRemaining) ?? 0,
+        status: y,
+        daysRemaining: ((u = n.data) == null ? void 0 : u.daysRemaining) ?? 0,
         lastValidatedAt: a
       };
       return await this.saveStoredLicense(S), {
@@ -350,6 +353,15 @@ class C {
     });
   }
   /**
+   * Fetches dynamic active subscription plans from GET /api/v1/public/plans
+   */
+  async getPublicPlans() {
+    const e = await this.fetchApi("/public/plans", { method: "GET" }), t = e.body || {};
+    if (!e.ok || !t.success)
+      throw new Error(t.message || e.error || "Failed to fetch subscription plans");
+    return t.data || [];
+  }
+  /**
    * Fetches official payment numbers, pricing, and instructions
    */
   async getPaymentInstructions() {
@@ -362,19 +374,21 @@ class C {
    * Submits a bKash / Nagad payment request
    */
   async submitPaymentRequest(e) {
-    var o, i, n, s;
+    var o, i, n, s, c, l, u;
     const t = await this.fetchApi("/payments/requests", {
       method: "POST",
       body: {
         transactionId: e.transactionId.trim().toUpperCase(),
         paymentMethod: e.paymentMethod,
+        planId: e.planId || void 0,
         planCode: e.planCode,
         payerContact: e.payerContact.trim(),
+        payerName: ((o = e.payerName) == null ? void 0 : o.trim()) || ((i = e.customerName) == null ? void 0 : i.trim()) || void 0,
         licenseId: e.licenseId || void 0,
-        customerName: ((o = e.customerName) == null ? void 0 : o.trim()) || void 0
+        customerName: ((n = e.customerName) == null ? void 0 : n.trim()) || ((s = e.payerName) == null ? void 0 : s.trim()) || void 0
       }
     }), a = t.body || {};
-    return !t.ok || !a.success ? { success: !1, error: a.message || ((s = (n = (i = a.error) == null ? void 0 : i.details) == null ? void 0 : n[0]) == null ? void 0 : s.message) || t.error || "Failed to submit payment request. Please check your transaction ID." } : {
+    return !t.ok || !a.success ? { success: !1, error: a.message || ((u = (l = (c = a.error) == null ? void 0 : c.details) == null ? void 0 : l[0]) == null ? void 0 : u.message) || t.error || "Failed to submit payment request. Please check your transaction ID." } : {
       success: !0,
       data: a.data
     };
@@ -391,10 +405,10 @@ class C {
     }
   }
 }
-const y = new C(), w = "ivac_periodic_license_check";
-async function I() {
+const I = new C(), w = "ivac_periodic_license_check";
+async function p() {
   try {
-    await y.hasActiveLicense() ? (chrome.action.setBadgeText({ text: "PRO" }), chrome.action.setBadgeBackgroundColor({ color: "#16a34a" })) : (chrome.action.setBadgeText({ text: "FREE" }), chrome.action.setBadgeBackgroundColor({ color: "#64748b" }));
+    await I.hasActiveLicense() ? (chrome.action.setBadgeText({ text: "PRO" }), chrome.action.setBadgeBackgroundColor({ color: "#16a34a" })) : (chrome.action.setBadgeText({ text: "FREE" }), chrome.action.setBadgeBackgroundColor({ color: "#64748b" }));
   } catch {
     chrome.action.setBadgeText({ text: "IVAC" }), chrome.action.setBadgeBackgroundColor({ color: "#16a34a" });
   }
@@ -403,12 +417,12 @@ chrome.runtime.onInstalled.addListener(async (r) => {
   r.reason === "install" ? console.log("[IVAC Assistant] Extension installed successfully.") : r.reason === "update" && console.log("[IVAC Assistant] Extension updated to new version."), typeof chrome.alarms < "u" && chrome.alarms.create(w, {
     delayInMinutes: 5,
     periodInMinutes: 360
-  }), await I();
+  }), await p();
 });
 typeof chrome.alarms < "u" && chrome.alarms.onAlarm.addListener(async (r) => {
   if (r.name === w)
     try {
-      await y.validateLicense(!1), await y.heartbeat(), await I();
+      await I.validateLicense(!1), await I.heartbeat(), await p();
     } catch (e) {
       console.warn("[IVAC Assistant] Background license check warning:", e);
     }
@@ -423,7 +437,7 @@ chrome.runtime.onMessage.addListener((r, e, t) => {
       targetDomain: "appointment.ivacbd.com"
     }), !0;
   if (r.type === "REFRESH_LICENSE_BADGE")
-    return I().then(() => t({ success: !0 })), !0;
+    return p().then(() => t({ success: !0 })), !0;
   if (r.type === "LICENSE_API_FETCH") {
     const { url: a, options: o } = r.payload || {};
     return fetch(a, o).then(async (i) => {
