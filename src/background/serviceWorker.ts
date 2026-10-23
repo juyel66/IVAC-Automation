@@ -41,6 +41,15 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   await updateExtensionBadge();
 });
 
+// Real-time storage change listener to keep toolbar badge in sync across all tabs and contexts
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && (changes['ivac_client_license_state'] || changes['ivac_assistant_license'])) {
+      updateExtensionBadge();
+    }
+  });
+}
+
 // Alarm listener
 if (typeof chrome.alarms !== 'undefined') {
   chrome.alarms.onAlarm.addListener(async (alarm) => {
