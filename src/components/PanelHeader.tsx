@@ -2,11 +2,15 @@ import React from 'react';
 import { Minus, X, GripHorizontal, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { WorkflowState } from '../types/workflow';
 
+import { LicenseStatus } from '../types/license';
+
 interface PanelHeaderProps {
   workflowState: WorkflowState;
   onMinimize: () => void;
   onClose: () => void;
   isLicenseActive?: boolean;
+  isLicenseLoading?: boolean;
+  licenseStatus?: LicenseStatus;
   daysRemaining?: number;
   onOpenLicense?: () => void;
 }
@@ -16,6 +20,8 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
   onMinimize,
   onClose,
   isLicenseActive,
+  isLicenseLoading,
+  licenseStatus,
   daysRemaining,
   onOpenLicense,
 }) => {
@@ -120,13 +126,21 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
             type="button"
             onClick={onOpenLicense}
             className={`px-1.5 py-0.5 text-[10px] font-bold rounded border transition-colors ${
-              isLicenseActive
+              isLicenseLoading
+                ? 'bg-slate-800 text-slate-300 border-slate-700 animate-pulse'
+                : isLicenseActive
                 ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/80 hover:bg-emerald-900'
+                : licenseStatus === 'REVOKED' || licenseStatus === 'SUSPENDED'
+                ? 'bg-rose-950/80 text-rose-300 border-rose-800/80 hover:bg-rose-900'
                 : 'bg-amber-950/80 text-amber-300 border-amber-800/80 hover:bg-amber-900 animate-pulse'
             }`}
             title="Click to view License & Subscription"
           >
-            {isLicenseActive ? `PRO${daysRemaining !== undefined ? ` • ${daysRemaining}d` : ''}` : 'UNLICENSED'}
+            {isLicenseLoading
+              ? 'CHECKING...'
+              : isLicenseActive
+              ? `PRO${daysRemaining !== undefined ? ` • ${daysRemaining}d` : ''}`
+              : licenseStatus || 'UNLICENSED'}
           </button>
         )}
         {getStatusBadge()}
