@@ -1,7 +1,7 @@
-var A = Object.defineProperty;
-var v = (r, e, t) => e in r ? A(r, e, { enumerable: !0, configurable: !0, writable: !0, value: t }) : r[e] = t;
-var h = (r, e, t) => v(r, typeof e != "symbol" ? e + "" : e, t);
-const f = {
+var v = Object.defineProperty;
+var b = (o, e, t) => e in o ? v(o, e, { enumerable: !0, configurable: !0, writable: !0, value: t }) : o[e] = t;
+var h = (o, e, t) => b(o, typeof e != "symbol" ? e + "" : e, t);
+const S = {
   panelPosition: { x: 24, y: 24 },
   // Top-right offset default
   isMinimized: !1,
@@ -10,50 +10,61 @@ const f = {
   soundAlertsEnabled: !0,
   stayWithinViewport: !0,
   licenseApiUrl: "http://localhost:5000/api/v1"
-}, m = "ivac_assistant_settings";
-class L {
+}, I = "ivac_assistant_settings";
+class C {
   isChromeStorage() {
     return typeof chrome < "u" && !!chrome.storage && !!chrome.storage.local;
   }
   async getSettings() {
     if (this.isChromeStorage())
       return new Promise((e) => {
-        chrome.storage.local.get([m], (t) => {
-          e({ ...f, ...t[m] || {} });
+        chrome.storage.local.get([I], (t) => {
+          e({ ...S, ...t[I] || {} });
         });
       });
     try {
-      const e = localStorage.getItem(m);
-      return e ? { ...f, ...JSON.parse(e) } : f;
+      const e = localStorage.getItem(I);
+      return e ? { ...S, ...JSON.parse(e) } : S;
     } catch {
-      return f;
+      return S;
     }
   }
   async saveSettings(e) {
-    const a = { ...await this.getSettings(), ...e };
+    const s = { ...await this.getSettings(), ...e };
     if (this.isChromeStorage())
-      return new Promise((o) => {
-        chrome.storage.local.set({ [m]: a }, () => {
-          o(a);
+      return new Promise((i) => {
+        chrome.storage.local.set({ [I]: s }, () => {
+          i(s);
         });
       });
     try {
-      localStorage.setItem(m, JSON.stringify(a));
+      localStorage.setItem(I, JSON.stringify(s));
     } catch {
     }
-    return a;
+    return s;
   }
 }
-const b = new L(), d = "ivac_assistant_license", g = "ivac_installation_id", E = 1440 * 60 * 1e3;
-class C {
+const _ = new C(), d = "ivac_client_license_state", u = "ivac_assistant_license", y = "ivac_installation_id", T = 1440 * 60 * 1e3;
+class N {
   constructor() {
     h(this, "listeners", /* @__PURE__ */ new Set());
     h(this, "cachedLicense", null);
     h(this, "isLoaded", !1);
     h(this, "strictModeInTests", !1);
+    h(this, "cachedInstallationId", null);
+    h(this, "installationIdPromise", null);
+    this.setupStorageListener();
   }
   isChromeStorage() {
     return typeof chrome < "u" && !!chrome.storage && !!chrome.storage.local;
+  }
+  setupStorageListener() {
+    typeof chrome < "u" && chrome.storage && chrome.storage.onChanged && chrome.storage.onChanged.addListener((e, t) => {
+      if (t === "local" && (e[d] || e[u])) {
+        const i = (e[d] || e[u]).newValue || null;
+        this.cachedLicense = i, this.notify();
+      }
+    });
   }
   /**
    * For testing: enforce strict license check even in test runners
@@ -82,21 +93,26 @@ class C {
   }
   /**
    * Returns a persistent UUID for this browser installation.
+   * Concurrency-safe: memoizes in memory and avoids duplicate generation during race conditions.
    */
   async getInstallationId() {
-    if (this.isChromeStorage())
-      return new Promise((e) => {
-        chrome.storage.local.get([g], (t) => {
-          let a = t[g];
-          a || (a = this.generateInstallationId(), chrome.storage.local.set({ [g]: a })), e(a);
+    return this.cachedInstallationId ? this.cachedInstallationId : this.installationIdPromise ? this.installationIdPromise : (this.installationIdPromise = (async () => {
+      let e = null;
+      if (this.isChromeStorage())
+        e = await new Promise((t) => {
+          chrome.storage.local.get([y], (s) => {
+            let i = s == null ? void 0 : s[y];
+            i || (i = this.generateInstallationId(), chrome.storage.local.set({ [y]: i })), t(i);
+          });
         });
-      });
-    try {
-      let e = localStorage.getItem(g);
-      return e || (e = this.generateInstallationId(), localStorage.setItem(g, e)), e;
-    } catch {
-      return this.generateInstallationId();
-    }
+      else
+        try {
+          e = localStorage.getItem(y), e || (e = this.generateInstallationId(), localStorage.setItem(y, e));
+        } catch {
+          e = this.generateInstallationId();
+        }
+      return this.cachedInstallationId = e, this.installationIdPromise = null, e;
+    })(), this.installationIdPromise);
   }
   generateInstallationId() {
     if (typeof crypto < "u" && crypto.randomUUID)
@@ -113,33 +129,51 @@ class C {
     return e.includes("Win") ? t = "Windows" : e.includes("Mac") ? t = "macOS" : e.includes("Linux") && (t = "Linux"), `Chrome on ${t}`;
   }
   /**
-   * Retrieves currently stored license info
+   * Retrieves currently stored license info from primary or legacy storage
    */
   async getStoredLicense() {
+    if (this.cachedLicense) return { ...this.cachedLicense };
     if (this.isChromeStorage())
       return new Promise((e) => {
-        chrome.storage.local.get([d], (t) => {
-          this.cachedLicense = t[d] || null, this.isLoaded = !0, e(this.cachedLicense);
-        });
+        chrome.storage.local.get(
+          [d, u],
+          (t) => {
+            const s = (t == null ? void 0 : t[d]) || (t == null ? void 0 : t[u]) || null;
+            this.cachedLicense = s, this.isLoaded = !0, s && !(t != null && t[d]) && chrome.storage.local.set({ [d]: s }), e(this.cachedLicense ? { ...this.cachedLicense } : null);
+          }
+        );
       });
     try {
-      const e = localStorage.getItem(d);
-      return this.cachedLicense = e ? JSON.parse(e) : null, this.isLoaded = !0, this.cachedLicense;
+      const e = localStorage.getItem(d) || localStorage.getItem(u);
+      return this.cachedLicense = e ? JSON.parse(e) : null, this.isLoaded = !0, this.cachedLicense ? { ...this.cachedLicense } : null;
     } catch {
       return this.cachedLicense = null, this.isLoaded = !0, null;
     }
   }
   /**
-   * Saves or clears license info in local storage
+   * Saves or clears license info in local storage (dual-written to both keys)
    */
   async saveStoredLicense(e) {
-    if (this.cachedLicense = e, this.isLoaded = !0, this.isChromeStorage())
+    if (this.cachedLicense = e ? { ...e } : null, this.isLoaded = !0, this.isChromeStorage())
       await new Promise((t) => {
-        e ? chrome.storage.local.set({ [d]: e }, () => t()) : chrome.storage.local.remove([d], () => t());
+        e ? chrome.storage.local.set(
+          {
+            [d]: e,
+            [u]: e
+          },
+          () => t()
+        ) : chrome.storage.local.remove(
+          [d, u],
+          () => t()
+        );
       });
     else
       try {
-        e ? localStorage.setItem(d, JSON.stringify(e)) : localStorage.removeItem(d);
+        if (e) {
+          const t = JSON.stringify(e);
+          localStorage.setItem(d, t), localStorage.setItem(u, t);
+        } else
+          localStorage.removeItem(d), localStorage.removeItem(u);
       } catch {
       }
     this.notify();
@@ -149,7 +183,7 @@ class C {
    */
   async getApiBaseUrl() {
     var t;
-    return ((t = (await b.getSettings()).licenseApiUrl) == null ? void 0 : t.replace(/\/+$/, "")) || "http://localhost:5000/api/v1";
+    return ((t = (await _.getSettings()).licenseApiUrl) == null ? void 0 : t.replace(/\/+$/, "")) || "http://localhost:5000/api/v1";
   }
   /**
    * Centralized network request execution.
@@ -158,7 +192,7 @@ class C {
    * Falls back to direct fetch in test and standalone environments.
    */
   async fetchApi(e, t = {}) {
-    const a = await this.getApiBaseUrl(), o = e.startsWith("/") ? e : `/${e}`, i = `${a}${o}`, n = {
+    const s = await this.getApiBaseUrl(), i = e.startsWith("/") ? e : `/${e}`, n = `${s}${i}`, r = {
       method: t.method || "GET",
       headers: {
         "Content-Type": "application/json",
@@ -168,16 +202,16 @@ class C {
     };
     if (typeof chrome < "u" && chrome.runtime && typeof chrome.runtime.sendMessage == "function" && chrome.runtime.id)
       try {
-        const s = await new Promise((c) => {
+        const a = await new Promise((c) => {
           chrome.runtime.sendMessage(
             {
               type: "LICENSE_API_FETCH",
               payload: {
-                url: i,
+                url: n,
                 options: {
-                  method: n.method,
-                  headers: n.headers,
-                  body: n.body
+                  method: r.method,
+                  headers: r.headers,
+                  body: r.body
                 }
               }
             },
@@ -186,24 +220,24 @@ class C {
             }
           );
         });
-        if (s && s.status > 0)
-          return s;
-      } catch (s) {
-        console.warn("[LicenseService] Background delegation failed, falling back to direct fetch:", s);
+        if (a && a.status > 0)
+          return a;
+      } catch (a) {
+        console.warn("[LicenseService] Background delegation failed, falling back to direct fetch:", a);
       }
     try {
-      const s = await fetch(i, n), c = await s.json().catch(() => ({}));
+      const a = await fetch(n, r), c = await a.json().catch(() => ({}));
       return {
-        ok: s.ok,
-        status: s.status,
+        ok: a.ok,
+        status: a.status,
         body: c
       };
-    } catch (s) {
+    } catch (a) {
       return {
         ok: !1,
         status: 0,
         body: {},
-        error: s.message || "Network request failed"
+        error: a.message || "Network request failed"
       };
     }
   }
@@ -229,36 +263,36 @@ class C {
     const t = e.trim().toUpperCase();
     if (!t)
       return { success: !1, error: "Please enter a valid license key" };
-    const a = await this.getInstallationId(), o = this.getInstallationLabel(), i = await this.fetchApi("/licenses/activate", {
+    const s = await this.getInstallationId(), i = this.getInstallationLabel(), n = await this.fetchApi("/licenses/activate", {
       method: "POST",
       body: {
         licenseKey: t,
-        installationId: a,
-        installationLabel: o
+        installationId: s,
+        installationLabel: i
       }
-    }), n = i.body || {};
-    if (!i.ok || !n.success)
-      return { success: !1, error: n.message || ((l = n.error) == null ? void 0 : l.message) || i.error || (i.status === 409 ? "Installation slot limit reached. Please release an existing installation first." : "License activation failed. Please verify your license key.") };
-    const s = n.data, c = {
+    }), r = n.body || {};
+    if (!n.ok || !r.success)
+      return { success: !1, error: r.message || ((l = r.error) == null ? void 0 : l.message) || n.error || (n.status === 409 ? "Installation slot limit reached. Please release an existing installation first." : "License activation failed. Please verify your license key.") };
+    const a = r.data, c = {
       licenseKey: t,
-      licenseId: s.licenseId || s.id,
-      status: s.status || "ACTIVE",
-      activatedAt: s.activatedAt,
-      expiresAt: s.expiresAt,
-      daysRemaining: s.daysRemaining ?? 30,
-      maxInstallations: s.maxInstallations ?? 1,
-      activeInstallationsCount: s.activeInstallationsCount ?? 1,
-      availableSlots: s.availableSlots ?? 0,
-      installationId: a,
-      installationLabel: o,
+      licenseId: a.licenseId || a.id,
+      status: a.status || "ACTIVE",
+      activatedAt: a.activatedAt,
+      expiresAt: a.expiresAt,
+      daysRemaining: a.daysRemaining ?? 30,
+      maxInstallations: a.maxInstallations ?? 1,
+      activeInstallationsCount: a.activeInstallationsCount ?? 1,
+      availableSlots: a.availableSlots ?? 0,
+      installationId: s,
+      installationLabel: i,
       lastValidatedAt: Date.now(),
-      customerName: s.customerName,
-      customerContact: s.customerContact
+      customerName: a.customerName,
+      customerContact: a.customerContact
     };
     return await this.saveStoredLicense(c), {
       success: !0,
       data: c,
-      message: n.message || "License successfully activated on this browser."
+      message: r.message || "License successfully activated on this browser."
     };
   }
   /**
@@ -266,52 +300,60 @@ class C {
    * Handles offline tolerance gracefully up to 24 hours.
    */
   async validateLicense(e = !1) {
-    var l, u;
+    var l, m, E;
     const t = await this.getStoredLicense();
     if (!t || !t.licenseKey)
       return { success: !0, isValid: !1, message: "No license key found" };
-    const a = Date.now();
-    if (!e && t.lastValidatedAt && a - t.lastValidatedAt < 600 * 1e3)
-      return { success: !0, isValid: t.status === "ACTIVE" && (!t.expiresAt || new Date(t.expiresAt).getTime() > a), data: t };
-    const o = await this.getInstallationId(), i = await this.fetchApi("/licenses/validate", {
+    const s = Date.now();
+    if (!e && t.lastValidatedAt && s - t.lastValidatedAt < 600 * 1e3)
+      return { success: !0, isValid: t.status === "ACTIVE" && (!t.expiresAt || new Date(t.expiresAt).getTime() > s), data: t };
+    const i = await this.getInstallationId(), n = await this.fetchApi("/licenses/validate", {
       method: "POST",
       body: {
         licenseKey: t.licenseKey,
-        installationId: o
+        installationId: i
       }
-    }), n = i.body || {};
-    if (!i.ok || !n.success) {
-      if ((i.status === 0 || i.error) && t.status === "ACTIVE" && t.expiresAt && new Date(t.expiresAt).getTime() > a && a - (t.lastValidatedAt || 0) < E)
-        return {
+    }), r = n.body || {};
+    if (!n.ok || !r.success) {
+      if (n.status === 0 || n.error)
+        return t.status === "ACTIVE" && t.expiresAt && new Date(t.expiresAt).getTime() > s && s - (t.lastValidatedAt || 0) < T ? {
           success: !0,
           isValid: !0,
           data: t,
           message: "Server unreachable. Running with offline grace period."
+        } : {
+          success: !1,
+          isValid: !1,
+          data: t,
+          message: "Server unreachable and offline grace period expired. Internet connection required to verify license."
         };
-      const y = ((l = n.data) == null ? void 0 : l.status) || (i.status === 404 ? "UNLICENSED" : "EXPIRED"), S = {
+      const f = (l = r.error) == null ? void 0 : l.code;
+      let g = "EXPIRED";
+      f === "LICENSE_REVOKED" || f === "INSTALLATION_REVOKED" ? g = "REVOKED" : f === "LICENSE_SUSPENDED" ? g = "SUSPENDED" : f === "INVALID_LICENSE" || n.status === 404 ? g = "UNLICENSED" : (m = r.data) != null && m.status && (g = r.data.status);
+      const A = {
         ...t,
-        status: y,
-        daysRemaining: ((u = n.data) == null ? void 0 : u.daysRemaining) ?? 0,
-        lastValidatedAt: a
+        status: g,
+        daysRemaining: ((E = r.data) == null ? void 0 : E.daysRemaining) ?? (g === "ACTIVE" ? t.daysRemaining : 0),
+        lastValidatedAt: s
       };
-      return await this.saveStoredLicense(S), {
+      return await this.saveStoredLicense(A), {
         success: !1,
         isValid: !1,
-        data: S,
-        message: n.message || i.error || "License validation failed or expired."
+        data: A,
+        message: r.message || n.error || "License validation failed or expired."
       };
     }
-    const s = n.data, c = {
+    const a = r.data, c = {
       ...t,
-      licenseId: s.licenseId || t.licenseId,
-      status: s.status || "ACTIVE",
-      activatedAt: s.activatedAt || t.activatedAt,
-      expiresAt: s.expiresAt || t.expiresAt,
-      daysRemaining: s.daysRemaining ?? t.daysRemaining,
-      maxInstallations: s.maxInstallations ?? t.maxInstallations,
-      activeInstallationsCount: s.activeInstallationsCount ?? t.activeInstallationsCount,
-      availableSlots: s.availableSlots ?? t.availableSlots,
-      lastValidatedAt: a
+      licenseId: a.licenseId || t.licenseId,
+      status: a.status || "ACTIVE",
+      activatedAt: a.activatedAt || t.activatedAt,
+      expiresAt: a.expiresAt || t.expiresAt,
+      daysRemaining: a.daysRemaining ?? t.daysRemaining,
+      maxInstallations: a.maxInstallations ?? t.maxInstallations,
+      activeInstallationsCount: a.activeInstallationsCount ?? t.activeInstallationsCount,
+      availableSlots: a.availableSlots ?? t.availableSlots,
+      lastValidatedAt: s
     };
     return await this.saveStoredLicense(c), { success: !0, isValid: c.status === "ACTIVE", data: c };
   }
@@ -322,19 +364,19 @@ class C {
     const e = await this.getStoredLicense();
     if (!e || !e.licenseKey)
       return await this.saveStoredLicense(null), { success: !0, message: "Local installation cleared." };
-    const t = await this.getInstallationId(), a = await this.fetchApi("/licenses/release-installation", {
+    const t = await this.getInstallationId(), s = await this.fetchApi("/licenses/release-installation", {
       method: "POST",
       body: {
         licenseKey: e.licenseKey,
         installationId: t
       }
-    }), o = a.body || {};
-    return !a.ok || !o.success ? {
+    }), i = s.body || {};
+    return !s.ok || !i.success ? {
       success: !1,
-      error: o.message || a.error || "Failed to release slot on server."
+      error: i.message || s.error || "Failed to release slot on server."
     } : (await this.saveStoredLicense(null), {
       success: !0,
-      message: o.message || "Browser installation slot successfully released."
+      message: i.message || "Browser installation slot successfully released."
     });
   }
   /**
@@ -374,7 +416,7 @@ class C {
    * Submits a bKash / Nagad payment request
    */
   async submitPaymentRequest(e) {
-    var o, i, n, s, c, l, u;
+    var i, n, r, a, c, l, m;
     const t = await this.fetchApi("/payments/requests", {
       method: "POST",
       body: {
@@ -383,14 +425,14 @@ class C {
         planId: e.planId || void 0,
         planCode: e.planCode,
         payerContact: e.payerContact.trim(),
-        payerName: ((o = e.payerName) == null ? void 0 : o.trim()) || ((i = e.customerName) == null ? void 0 : i.trim()) || void 0,
+        payerName: ((i = e.payerName) == null ? void 0 : i.trim()) || ((n = e.customerName) == null ? void 0 : n.trim()) || void 0,
         licenseId: e.licenseId || void 0,
-        customerName: ((n = e.customerName) == null ? void 0 : n.trim()) || ((s = e.payerName) == null ? void 0 : s.trim()) || void 0
+        customerName: ((r = e.customerName) == null ? void 0 : r.trim()) || ((a = e.payerName) == null ? void 0 : a.trim()) || void 0
       }
-    }), a = t.body || {};
-    return !t.ok || !a.success ? { success: !1, error: a.message || ((u = (l = (c = a.error) == null ? void 0 : c.details) == null ? void 0 : l[0]) == null ? void 0 : u.message) || t.error || "Failed to submit payment request. Please check your transaction ID." } : {
+    }), s = t.body || {};
+    return !t.ok || !s.success ? { success: !1, error: s.message || ((m = (l = (c = s.error) == null ? void 0 : c.details) == null ? void 0 : l[0]) == null ? void 0 : m.message) || t.error || "Failed to submit payment request. Please check your transaction ID." } : {
       success: !0,
-      data: a.data
+      data: s.data
     };
   }
   /**
@@ -405,54 +447,57 @@ class C {
     }
   }
 }
-const I = new C(), w = "ivac_periodic_license_check";
+const L = new N(), w = "ivac_periodic_license_check";
 async function p() {
   try {
-    await I.hasActiveLicense() ? (chrome.action.setBadgeText({ text: "PRO" }), chrome.action.setBadgeBackgroundColor({ color: "#16a34a" })) : (chrome.action.setBadgeText({ text: "FREE" }), chrome.action.setBadgeBackgroundColor({ color: "#64748b" }));
+    await L.hasActiveLicense() ? (chrome.action.setBadgeText({ text: "PRO" }), chrome.action.setBadgeBackgroundColor({ color: "#16a34a" })) : (chrome.action.setBadgeText({ text: "FREE" }), chrome.action.setBadgeBackgroundColor({ color: "#64748b" }));
   } catch {
     chrome.action.setBadgeText({ text: "IVAC" }), chrome.action.setBadgeBackgroundColor({ color: "#16a34a" });
   }
 }
-chrome.runtime.onInstalled.addListener(async (r) => {
-  r.reason === "install" ? console.log("[IVAC Assistant] Extension installed successfully.") : r.reason === "update" && console.log("[IVAC Assistant] Extension updated to new version."), typeof chrome.alarms < "u" && chrome.alarms.create(w, {
+chrome.runtime.onInstalled.addListener(async (o) => {
+  o.reason === "install" ? console.log("[IVAC Assistant] Extension installed successfully.") : o.reason === "update" && console.log("[IVAC Assistant] Extension updated to new version."), typeof chrome.alarms < "u" && chrome.alarms.create(w, {
     delayInMinutes: 5,
     periodInMinutes: 360
   }), await p();
 });
-typeof chrome.alarms < "u" && chrome.alarms.onAlarm.addListener(async (r) => {
-  if (r.name === w)
+typeof chrome < "u" && chrome.storage && chrome.storage.onChanged && chrome.storage.onChanged.addListener((o, e) => {
+  e === "local" && (o.ivac_client_license_state || o.ivac_assistant_license) && p();
+});
+typeof chrome.alarms < "u" && chrome.alarms.onAlarm.addListener(async (o) => {
+  if (o.name === w)
     try {
-      await I.validateLicense(!1), await I.heartbeat(), await p();
+      await L.validateLicense(!1), await L.heartbeat(), await p();
     } catch (e) {
       console.warn("[IVAC Assistant] Background license check warning:", e);
     }
 });
-chrome.runtime.onMessage.addListener((r, e, t) => {
-  if (r.type === "PING")
+chrome.runtime.onMessage.addListener((o, e, t) => {
+  if (o.type === "PING")
     return t({ status: "PONG", timestamp: Date.now() }), !0;
-  if (r.type === "GET_EXTENSION_INFO")
+  if (o.type === "GET_EXTENSION_INFO")
     return t({
       name: "IVAC Booking Assistant",
       version: chrome.runtime.getManifest().version,
       targetDomain: "appointment.ivacbd.com"
     }), !0;
-  if (r.type === "REFRESH_LICENSE_BADGE")
+  if (o.type === "REFRESH_LICENSE_BADGE")
     return p().then(() => t({ success: !0 })), !0;
-  if (r.type === "LICENSE_API_FETCH") {
-    const { url: a, options: o } = r.payload || {};
-    return fetch(a, o).then(async (i) => {
-      const n = await i.json().catch(() => ({}));
+  if (o.type === "LICENSE_API_FETCH") {
+    const { url: s, options: i } = o.payload || {};
+    return fetch(s, i).then(async (n) => {
+      const r = await n.json().catch(() => ({}));
       t({
-        ok: i.ok,
-        status: i.status,
-        body: n
+        ok: n.ok,
+        status: n.status,
+        body: r
       });
-    }).catch((i) => {
+    }).catch((n) => {
       t({
         ok: !1,
         status: 0,
         body: {},
-        error: i.message || "Network request failed"
+        error: n.message || "Network request failed"
       });
     }), !0;
   }
