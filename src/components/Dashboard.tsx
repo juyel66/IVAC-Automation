@@ -50,6 +50,8 @@ interface DashboardProps {
   onUpdatePreferredCentre?: (centre: string) => Promise<void>;
   onSwitchTab: (tab: 'profiles' | 'documents' | 'workflow' | 'license' | 'settings') => void;
   isLicenseActive?: boolean;
+  isLicenseLoading?: boolean;
+  licenseValidationError?: string | null;
   licenseDaysRemaining?: number;
   licenseState?: import('../types/license').ClientLicenseState | null;
   onOpenLicenseModal?: () => void;
@@ -81,6 +83,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onUpdatePreferredCentre,
   onSwitchTab,
   isLicenseActive: isLicenseActiveProp,
+  isLicenseLoading,
+  licenseValidationError,
   licenseDaysRemaining,
   licenseState,
   onOpenLicenseModal,
@@ -259,8 +263,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Missing requirements helper text
   const getDisabledReason = (): string | null => {
+    if (isLicenseLoading && !licenseState) {
+      return 'Checking license entitlement with server...';
+    }
     if (licenseState && licenseState.status !== 'ACTIVE') {
       return `License status is "${licenseState.status}". Active subscription required to start.`;
+    }
+    if (!isLicenseActive) {
+      return 'Active premium license required. Please activate or renew your license.';
     }
     if (!selectedProfile) return 'Please select or create an applicant profile.';
     if (!hasRequiredDocs) return 'Primary PDF is missing. Upload in PDFs tab.';
@@ -275,13 +285,55 @@ export const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="space-y-3 text-xs">
       {/* 0. LICENSE ENTITLEMENT BANNER */}
-      {!isLicenseActive || (licenseState && licenseState.status !== 'ACTIVE') ? (
+      {isLicenseLoading && !licenseState ? (
+        <div className="p-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl flex items-center justify-between shadow-sm animate-pulse">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-4 h-4 text-emerald-400 animate-spin shrink-0" />
+            <div>
+              <span className="font-bold text-[11px] text-slate-200 block">Checking License Status</span>
+              <p className="text-[10px] text-slate-400">Verifying subscription entitlement with server...</p>
+            </div>
+          </div>
+          <span className="text-[10px] text-slate-400 font-mono">Checking...</span>
+        </div>
+      ) : licenseValidationError && (!licenseState || licenseState.status !== 'ACTIVE') ? (
+        <div className="p-2.5 bg-rose-950/60 border border-rose-500/70 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <div>
+              <span className="font-bold text-[11px] text-rose-200 block">Verification Notice</span>
+              <p className="text-[10px] text-rose-300/80 line-clamp-1">{licenseValidationError}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => (onOpenLicenseModal ? onOpenLicenseModal() : onSwitchTab('license'))}
+            className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg text-[10px] shrink-0 transition-colors shadow-sm"
+          >
+            Resolve
+          </button>
+        </div>
+      ) : !isLicenseActive || (licenseState && licenseState.status !== 'ACTIVE') ? (
         <div className="p-2.5 bg-gradient-to-r from-amber-950/70 to-rose-950/60 border border-amber-500/70 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in">
           <div className="flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
             <div>
-              <span className="font-bold text-[11px] text-amber-200 block">License Required</span>
-              <p className="text-[10px] text-amber-300/80">Activate key or purchase pass to run automation.</p>
+              <span className="font-bold text-[11px] text-amber-200 block">
+                {licenseState?.status === 'EXPIRED'
+                  ? 'Subscription Expired'
+                  : licenseState?.status === 'REVOKED'
+                  ? 'License Revoked'
+                  : licenseState?.status === 'SUSPENDED'
+                  ? 'License Suspended'
+                  : 'License Required'}
+              </span>
+              <p className="text-[10px] text-amber-300/80">
+                {licenseState?.status === 'EXPIRED'
+                  ? 'Renew your plan to continue automated booking workflows.'
+                  : licenseState?.status === 'REVOKED'
+                  ? 'This installation slot was revoked. Activate or release slot.'
+                  : 'Activate key or purchase pass to run automation.'}
+              </p>
             </div>
           </div>
           <button
@@ -289,7 +341,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             onClick={() => (onOpenLicenseModal ? onOpenLicenseModal() : onSwitchTab('license'))}
             className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] shrink-0 transition-colors shadow-sm"
           >
-            Activate
+            {licenseState?.status === 'EXPIRED' ? 'Renew' : 'Activate'}
           </button>
         </div>
       ) : (
