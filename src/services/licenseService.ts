@@ -14,7 +14,8 @@ import {
 } from '../types/license';
 import { settingsRepository } from '../storage/settingsRepository';
 
-const LICENSE_STORAGE_KEY = 'ivac_assistant_license';
+const PRIMARY_LICENSE_STORAGE_KEY = 'ivac_client_license_state';
+const LEGACY_LICENSE_STORAGE_KEY = 'ivac_assistant_license';
 const INSTALLATION_ID_STORAGE_KEY = 'ivac_installation_id';
 const OFFLINE_GRACE_PERIOD_MS = 24 * 60 * 60 * 1000; // 24 hours offline tolerance
 
@@ -25,6 +26,12 @@ class LicenseService {
   private cachedLicense: ClientLicenseState | null = null;
   private isLoaded = false;
   private strictModeInTests = false;
+  private cachedInstallationId: string | null = null;
+  private installationIdPromise: Promise<string> | null = null;
+
+  constructor() {
+    this.setupStorageListener();
+  }
 
   private isChromeStorage(): boolean {
     return (
@@ -32,6 +39,25 @@ class LicenseService {
       !!chrome.storage &&
       !!chrome.storage.local
     );
+  }
+
+  private setupStorageListener(): void {
+    if (
+      typeof chrome !== 'undefined' &&
+      chrome.storage &&
+      chrome.storage.onChanged
+    ) {
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local') {
+          if (changes[PRIMARY_LICENSE_STORAGE_KEY] || changes[LEGACY_LICENSE_STORAGE_KEY]) {
+            const change = changes[PRIMARY_LICENSE_STORAGE_KEY] || changes[LEGACY_LICENSE_STORAGE_KEY];
+            const updated = change.newValue || null;
+            this.cachedLicense = updated;
+            this.notify();
+          }
+        }
+      });
+    }
   }
 
   /**
@@ -70,31 +96,48 @@ class LicenseService {
 
   /**
    * Returns a persistent UUID for this browser installation.
+   * Concurrency-safe: memoizes in memory and avoids duplicate generation during race conditions.
    */
   public async getInstallationId(): Promise<string> {
-    if (this.isChromeStorage()) {
-      return new Promise((resolve) => {
-        chrome.storage.local.get([INSTALLATION_ID_STORAGE_KEY], (res) => {
-          let id = res[INSTALLATION_ID_STORAGE_KEY];
+    if (this.cachedInstallationId) {
+      return this.cachedInstallationId;
+    }
+    if (this.installationIdPromise) {
+      return this.installationIdPromise;
+    }
+
+    this.installationIdPromise = (async () => {
+      let id: string | null = null;
+
+      if (this.isChromeStorage()) {
+        id = await new Promise<string>((resolve) => {
+          chrome.storage.local.get([INSTALLATION_ID_STORAGE_KEY], (res) => {
+            let existing = res?.[INSTALLATION_ID_STORAGE_KEY];
+            if (!existing) {
+              existing = this.generateInstallationId();
+              chrome.storage.local.set({ [INSTALLATION_ID_STORAGE_KEY]: existing });
+            }
+            resolve(existing);
+          });
+        });
+      } else {
+        try {
+          id = localStorage.getItem(INSTALLATION_ID_STORAGE_KEY);
           if (!id) {
             id = this.generateInstallationId();
-            chrome.storage.local.set({ [INSTALLATION_ID_STORAGE_KEY]: id });
+            localStorage.setItem(INSTALLATION_ID_STORAGE_KEY, id);
           }
-          resolve(id);
-        });
-      });
-    } else {
-      try {
-        let id = localStorage.getItem(INSTALLATION_ID_STORAGE_KEY);
-        if (!id) {
+        } catch {
           id = this.generateInstallationId();
-          localStorage.setItem(INSTALLATION_ID_STORAGE_KEY, id);
         }
-        return id;
-      } catch {
-        return this.generateInstallationId();
       }
-    }
+
+      this.cachedInstallationId = id;
+      this.installationIdPromise = null;
+      return id;
+    })();
+
+    return this.installationIdPromise;
   }
 
   private generateInstallationId(): string {
@@ -119,23 +162,35 @@ class LicenseService {
   }
 
   /**
-   * Retrieves currently stored license info
+   * Retrieves currently stored license info from primary or legacy storage
    */
   public async getStoredLicense(): Promise<ClientLicenseState | null> {
+    if (this.cachedLicense) return { ...this.cachedLicense };
+
     if (this.isChromeStorage()) {
       return new Promise((resolve) => {
-        chrome.storage.local.get([LICENSE_STORAGE_KEY], (res) => {
-          this.cachedLicense = res[LICENSE_STORAGE_KEY] || null;
-          this.isLoaded = true;
-          resolve(this.cachedLicense);
-        });
+        chrome.storage.local.get(
+          [PRIMARY_LICENSE_STORAGE_KEY, LEGACY_LICENSE_STORAGE_KEY],
+          (res) => {
+            const raw = res?.[PRIMARY_LICENSE_STORAGE_KEY] || res?.[LEGACY_LICENSE_STORAGE_KEY] || null;
+            this.cachedLicense = raw;
+            this.isLoaded = true;
+            // Dual-sync if one was missing
+            if (raw && !res?.[PRIMARY_LICENSE_STORAGE_KEY]) {
+              chrome.storage.local.set({ [PRIMARY_LICENSE_STORAGE_KEY]: raw });
+            }
+            resolve(this.cachedLicense ? { ...this.cachedLicense } : null);
+          }
+        );
       });
     } else {
       try {
-        const item = localStorage.getItem(LICENSE_STORAGE_KEY);
+        const item =
+          localStorage.getItem(PRIMARY_LICENSE_STORAGE_KEY) ||
+          localStorage.getItem(LEGACY_LICENSE_STORAGE_KEY);
         this.cachedLicense = item ? JSON.parse(item) : null;
         this.isLoaded = true;
-        return this.cachedLicense;
+        return this.cachedLicense ? { ...this.cachedLicense } : null;
       } catch {
         this.cachedLicense = null;
         this.isLoaded = true;
@@ -145,26 +200,38 @@ class LicenseService {
   }
 
   /**
-   * Saves or clears license info in local storage
+   * Saves or clears license info in local storage (dual-written to both keys)
    */
   public async saveStoredLicense(state: ClientLicenseState | null): Promise<void> {
-    this.cachedLicense = state;
+    this.cachedLicense = state ? { ...state } : null;
     this.isLoaded = true;
 
     if (this.isChromeStorage()) {
       await new Promise<void>((resolve) => {
         if (state) {
-          chrome.storage.local.set({ [LICENSE_STORAGE_KEY]: state }, () => resolve());
+          chrome.storage.local.set(
+            {
+              [PRIMARY_LICENSE_STORAGE_KEY]: state,
+              [LEGACY_LICENSE_STORAGE_KEY]: state,
+            },
+            () => resolve()
+          );
         } else {
-          chrome.storage.local.remove([LICENSE_STORAGE_KEY], () => resolve());
+          chrome.storage.local.remove(
+            [PRIMARY_LICENSE_STORAGE_KEY, LEGACY_LICENSE_STORAGE_KEY],
+            () => resolve()
+          );
         }
       });
     } else {
       try {
         if (state) {
-          localStorage.setItem(LICENSE_STORAGE_KEY, JSON.stringify(state));
+          const serialized = JSON.stringify(state);
+          localStorage.setItem(PRIMARY_LICENSE_STORAGE_KEY, serialized);
+          localStorage.setItem(LEGACY_LICENSE_STORAGE_KEY, serialized);
         } else {
-          localStorage.removeItem(LICENSE_STORAGE_KEY);
+          localStorage.removeItem(PRIMARY_LICENSE_STORAGE_KEY);
+          localStorage.removeItem(LEGACY_LICENSE_STORAGE_KEY);
         }
       } catch {
         // ignore
@@ -406,13 +473,32 @@ class LicenseService {
             message: 'Server unreachable. Running with offline grace period.',
           };
         }
+
+        return {
+          success: false,
+          isValid: false,
+          data: current,
+          message: 'Server unreachable and offline grace period expired. Internet connection required to verify license.',
+        };
       }
 
-      const status = (body.data?.status as LicenseStatus) || (res.status === 404 ? 'UNLICENSED' : 'EXPIRED');
+      // Authoritative server response: map specific license status
+      const errorCode = body.error?.code;
+      let status: LicenseStatus = 'EXPIRED';
+      if (errorCode === 'LICENSE_REVOKED' || errorCode === 'INSTALLATION_REVOKED') {
+        status = 'REVOKED';
+      } else if (errorCode === 'LICENSE_SUSPENDED') {
+        status = 'SUSPENDED';
+      } else if (errorCode === 'INVALID_LICENSE' || res.status === 404) {
+        status = 'UNLICENSED';
+      } else if (body.data?.status) {
+        status = body.data.status as LicenseStatus;
+      }
+
       const updated: ClientLicenseState = {
         ...current,
         status,
-        daysRemaining: body.data?.daysRemaining ?? 0,
+        daysRemaining: body.data?.daysRemaining ?? (status === 'ACTIVE' ? current.daysRemaining : 0),
         lastValidatedAt: now,
       };
       await this.saveStoredLicense(updated);
